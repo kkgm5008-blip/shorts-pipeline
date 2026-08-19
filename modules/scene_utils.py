@@ -14,7 +14,7 @@ def detect_scene_cuts(
 ) -> List[float]:
     """ffmpeg의 scene detection 필터로 컷 타임스탬프(초) 리스트를 뽑는다.
     window_sec가 None이면 영상 전체를 분석한다 (긴 영상은 시간이 걸릴 수 있음)."""
-    cmd = ["ffmpeg", "-i", video_path, "-vf", f"select='gt(scene,{threshold})',showinfo"]
+    cmd = ["ffmpeg", "-nostdin", "-i", video_path, "-vf", f"select='gt(scene,{threshold})',showinfo"]
     if window_sec is not None:
         cmd += ["-t", str(window_sec + 1)]
     cmd += ["-f", "null", "-"]
