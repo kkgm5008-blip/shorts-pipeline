@@ -19,7 +19,8 @@ def detect_silence(
     min_silence_len: float = 0.5,
 ) -> List[SilenceInterval]:
     cmd = [
-        "ffmpeg", "-i", video_path,
+        "ffmpeg", "-nostdin", "-i", video_path,
+        "-vn",  # 오디오 분석만 하므로 비디오 디코딩을 생략해 CPU/시간을 크게 절약한다
         "-af", f"silencedetect=noise={noise_db}dB:d={min_silence_len}",
         "-f", "null", "-",
     ]
