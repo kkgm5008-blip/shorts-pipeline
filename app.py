@@ -87,9 +87,26 @@ def save_upload(uploaded_file, subdir=""):
     return path
 
 
+# zip으로 자동 묶기를 허용할 최대 결과 폴더 크기(MB). 이보다 크면 메모리에
+# 전체를 두 번(원본 + zip 버퍼) 올리게 되어, 클라우드 무료 티어(RAM 제한적)에서
+# 방금 렌더링을 마친 직후 OOM으로 앱이 죽을 위험이 있다. 그런 경우엔 zip을
+# 건너뛰고 이미 있는 개별 다운로드 버튼을 쓰도록 안내한다.
+ZIP_AUTO_MAX_MB = 200
+
+
+def folder_size_mb(folder_path: str) -> float:
+    total = 0
+    for root, _, files in os.walk(folder_path):
+        for name in files:
+            total += os.path.getsize(os.path.join(root, name))
+    return total / (1024 * 1024)
+
+
 def zip_folder(folder_path: str) -> bytes:
     buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+    # ZIP_STORED(무압축)를 쓰는 이유: 결과물 대부분이 이미 압축된 mp4라서
+    # DEFLATE로 다시 압축해봐야 용량은 거의 안 줄고 CPU만 더 쓴다(실측상 5배+ 느림).
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
         for root, _, files in os.walk(folder_path):
             for name in files:
                 full = os.path.join(root, name)
@@ -224,8 +241,15 @@ with tab1:
                     download_button_for_file(vertical_path, "⬇ 세로 영상 다운로드")
 
                 st.markdown("---")
-                zip_bytes = zip_folder(out_dir)
-                st.download_button("📦 전체 결과 zip으로 한번에 다운로드", zip_bytes, file_name=f"{base_name}_결과.zip")
+                out_size_mb = folder_size_mb(out_dir)
+                if out_size_mb <= ZIP_AUTO_MAX_MB:
+                    zip_bytes = zip_folder(out_dir)
+                    st.download_button("📦 전체 결과 zip으로 한번에 다운로드", zip_bytes, file_name=f"{base_name}_결과.zip")
+                else:
+                    st.info(
+                        f"결과 폴더가 {out_size_mb:.0f}MB로 커서 zip 묶음은 생략했습니다 "
+                        "(메모리 절약 목적). 위의 개별 다운로드 버튼을 이용해주세요."
+                    )
 
             except Exception as e:
                 st.error(f"처리 중 오류가 발생했습니다: {e}")
@@ -323,7 +347,7 @@ with tab2:
 
                     def _on_render_progress(done, total):
                         # 구간마다 상태 라벨을 갱신해서 진행 상황을 보여주고,
-                        # 프론트엔드로 계속 업데이트를 보내서 연결이 끓기는 것을 줄인다.
+                        # 프론트엔드로 계속 업데이트를 보내 연결이 끊기는 것을 줄인다.
                         status.update(label=f"최종 영상 렌더링 중... ({done}/{total} 구간)")
 
                     render_autocut(raw_video_path, segments, autocut_mp4, progress_callback=_on_render_progress)
@@ -352,8 +376,15 @@ with tab2:
                 download_button_for_file(report_path, "⬇ 요약 리포트")
 
                 st.markdown("---")
-                zip_bytes = zip_folder(out_dir)
-                st.download_button("📦 전체 결과 zip으로 한번에 다운로드", zip_bytes, file_name=f"{base_name}_autocut_결과.zip")
+                out_size_mb = folder_size_mb(out_dir)
+                if out_size_mb <= ZIP_AUTO_MAX_MB:
+                    zip_bytes = zip_folder(out_dir)
+                    st.download_button("📦 전체 결과 zip으로 한번에 다운로드", zip_bytes, file_name=f"{base_name}_autocut_결과.zip")
+                else:
+                    st.info(
+                        f"결과 폴더가 {out_size_mb:.0f}MB로 커서 zip 묶음은 생략했습니다 "
+                        "(메모리 절약 목적). 위의 개별 다운로드 버튼을 이용해주세요."
+                    )
 
             except Exception as e:
                 st.error(f"처리 중 오류가 발생했습니다: {e}")
