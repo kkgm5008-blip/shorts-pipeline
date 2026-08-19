@@ -30,6 +30,7 @@ from modules.premiere_export import (
 )
 from modules.reference_style import analyze_reference
 from modules.autocut import build_segments, apply_target_duration, render_autocut
+from modules.yt_download import download_youtube_video
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
@@ -239,7 +240,14 @@ with tab2:
     with col1:
         raw_video_file = st.file_uploader("편집할 원본(raw) 영상 (필수)", type=["mp4", "mov", "mkv", "avi"], key="t2_video")
     with col2:
-        ref_video_file = st.file_uploader("레퍼런스 영상 (선택, 편집 스타일 참고용)", type=["mp4", "mov", "mkv", "avi"], key="t2_ref")
+        ref_video_file = st.file_uploader("레퍼런스 영상 파일 (선택, 편집 스타일 참고용)", type=["mp4", "mov", "mkv", "avi"], key="t2_ref")
+        ref_youtube_url = st.text_input(
+            "또는 유튜브 링크로 대신 지정 (선택)",
+            value="",
+            key="t2_ref_url",
+            placeholder="https://www.youtube.com/watch?v=...",
+        )
+        st.caption("파일과 링크를 둘 다 입력하면 업로드한 파일이 우선 사용됩니다.")
     with col3:
         raw_srt_file = st.file_uploader("원본 영상 자막 SRT (선택)", type=["srt"], key="t2_srt")
 
@@ -261,7 +269,6 @@ with tab2:
             st.error("편집할 원본 영상을 먼저 올려주세요.")
         else:
             raw_video_path = save_upload(raw_video_file)
-            ref_video_path = save_upload(ref_video_file) if ref_video_file else None
             raw_srt_path = save_upload(raw_srt_file) if raw_srt_file else None
             base_name = os.path.splitext(raw_video_file.name)[0]
             out_dir = os.path.join(OUTPUT_DIR, f"{base_name}_autocut")
@@ -273,6 +280,19 @@ with tab2:
                 with st.status("분석 준비 중...", expanded=True) as status:
                     reference_style = None
                     ref_desc = "사용 안 함 (레퍼런스 미지정)"
+
+                    ref_video_path = None
+                    if ref_video_file:
+                        ref_video_path = save_upload(ref_video_file)
+                    elif ref_youtube_url and ref_youtube_url.strip():
+                        status.update(label="유튜브 레퍼런스 영상 다운로드 중...")
+                        try:
+                            ref_video_path = download_youtube_video(ref_youtube_url.strip(), UPLOAD_DIR)
+                            st.write(f"유튜브 영상 다운로드 완료: {os.path.basename(ref_video_path)}")
+                        except Exception as e:
+                            st.warning(f"유튜브 영상을 다운로드하지 못해 레퍼런스 없이 진행합니다: {e}")
+                            ref_video_path = None
+
                     if ref_video_path:
                         status.update(label="레퍼런스 영상 컷 리듬 분석 중...")
                         reference_style = analyze_reference(ref_video_path)
