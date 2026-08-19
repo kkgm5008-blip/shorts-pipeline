@@ -21,7 +21,7 @@ import os
 import re
 import subprocess
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from .silence import detect_silence, invert_intervals
 from .shorts import probe_duration
@@ -135,13 +135,19 @@ def render_autocut(
     video_path: str,
     segments: List[CutSegment],
     output_path: str,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> None:
+    """세그먼트들을 잘라서 이어붙인다.
+    progress_callback(done, total)이 주어지면 구간을 하나 렌더링할 때마다 호출한다.
+    (Streamlit처럼 오래 걸리는 작업의 진행 상태를 보여주고, 연결이 살아있음을
+    프론트엔드에 계속 알려서 클라우드 호스팅에서 타임아웃/끊김을 줄이는 용도.)"""
     if not segments:
         raise ValueError("잘라 붙일 구간이 없습니다 (모든 구간이 무음이거나 필터링됨).")
 
     tmp_dir = output_path + "_parts"
     os.makedirs(tmp_dir, exist_ok=True)
     part_paths = []
+    total = len(segments)
     for i, seg in enumerate(segments):
         part_path = os.path.join(tmp_dir, f"part_{i:04d}.mp4")
         cmd = [
@@ -154,6 +160,11 @@ def render_autocut(
         ]
         subprocess.run(cmd, capture_output=True, text=True, check=True)
         part_paths.append(part_path)
+        if progress_callback:
+            try:
+                progress_callback(i + 1, total)
+            except Exception:
+                pass  # 진행 콜백 실패가 렌더링 자체를 막으면 안 됨
 
     concat_list_path = os.path.join(tmp_dir, "concat_list.txt")
     with open(concat_list_path, "w", encoding="utf-8") as f:
