@@ -26,7 +26,7 @@ from modules.intro_check import analyze_intro
 from modules.shorts import probe_duration, select_highlights, export_highlight_clips, reformat_vertical
 from modules.premiere_export import (
     build_markers_from_pipeline, write_premiere_markers_csv, write_readable_markers,
-    write_autocut_edl, write_autocut_segments_csv, write_autocut_report,
+    write_autocut_edl, write_autocut_premiere_xml, write_autocut_segments_csv, write_autocut_report,
 )
 from modules.reference_style import analyze_reference
 from modules.autocut import build_segments, apply_target_duration, render_autocut
@@ -352,11 +352,13 @@ with tab2:
 
                     render_autocut(raw_video_path, segments, autocut_mp4, progress_callback=_on_render_progress)
 
-                    status.update(label="프리미어용 EDL / 리포트 생성 중...")
+                    status.update(label="프리미어용 EDL / XML / 리포트 생성 중...")
                     edl_path = os.path.join(out_dir, f"{base_name}_autocut.edl")
+                    xml_path = os.path.join(out_dir, f"{base_name}_autocut.xml")
                     csv_path = os.path.join(out_dir, f"{base_name}_autocut_segments.csv")
                     report_path = os.path.join(out_dir, f"{base_name}_autocut_report.txt")
                     write_autocut_edl(edl_path, segments, source_reel_name=os.path.abspath(raw_video_path), fps=fps2)
+                    write_autocut_premiere_xml(xml_path, segments, raw_video_path, fps=fps2, title=base_name)
                     write_autocut_segments_csv(csv_path, segments)
                     write_autocut_report(report_path, original_duration, segments, ref_desc, noise_db, min_silence_len)
 
@@ -366,12 +368,22 @@ with tab2:
 
                 st.markdown("#### 완성 영상")
                 st.video(autocut_mp4)
-                dc1, dc2, dc3 = st.columns(3)
+                st.caption(
+                    "**프리미어로 원본 화질 그대로 가져오려면** ⬇ 프리미어 XML을 다운받아서 "
+                    "프리미어에서 File > Import로 불러오세요. 원본 영상 파일의 경로를 그대로 "
+                    "담고 있어서, 같은 컴퓨터에 원본이 있으면 보통 자동으로 연결됩니다 "
+                    "(재인코딩 없이 원본 화질 그대로 컷 편집 시퀀스가 만들어져요). "
+                    "XML이 안 열리면 EDL을 대신 시도해보세요 (이건 클립 이름 매칭 방식이라 "
+                    "가끔 수동으로 미디어를 다시 연결해줘야 할 수 있어요)."
+                )
+                dc1, dc2, dc3, dc4 = st.columns(4)
                 with dc1:
                     download_button_for_file(autocut_mp4, "⬇ 완성 영상 mp4")
                 with dc2:
-                    download_button_for_file(edl_path, "⬇ 프리미어 EDL (실험적)")
+                    download_button_for_file(xml_path, "⬇ 프리미어 XML (권장)")
                 with dc3:
+                    download_button_for_file(edl_path, "⬇ 프리미어 EDL (대안)")
+                with dc4:
                     download_button_for_file(csv_path, "⬇ 구간 목록 CSV")
                 download_button_for_file(report_path, "⬇ 요약 리포트")
 
