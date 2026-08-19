@@ -318,9 +318,15 @@ with tab2:
                     if not segments:
                         raise ValueError("남는 구간이 없습니다. 무음 판정 데시벨 값을 낮추거나(-40 등) 최소 무음 길이를 늘려보세요.")
 
-                    status.update(label="최종 영상 렌더링 중... (시간이 좀 걸립니다)")
+                    status.update(label=f"최종 영상 렌더링 중... (0/{len(segments)} 구간)")
                     autocut_mp4 = os.path.join(out_dir, f"{base_name}_autocut.mp4")
-                    render_autocut(raw_video_path, segments, autocut_mp4)
+
+                    def _on_render_progress(done, total):
+                        # 구간마다 상태 라벨을 갱신해서 진행 상황을 보여주고,
+                        # 프론트엔드로 계속 업데이트를 보내서 연결이 끓기는 것을 줄인다.
+                        status.update(label=f"최종 영상 렌더링 중... ({done}/{total} 구간)")
+
+                    render_autocut(raw_video_path, segments, autocut_mp4, progress_callback=_on_render_progress)
 
                     status.update(label="프리미어용 EDL / 리포트 생성 중...")
                     edl_path = os.path.join(out_dir, f"{base_name}_autocut.edl")
