@@ -46,7 +46,8 @@ def _measure_loudness(video_path: str, start: float, dur: float) -> float:
     if dur <= 0:
         return -91.0
     cmd = [
-        "ffmpeg", "-ss", str(start), "-t", str(dur), "-i", video_path,
+        "ffmpeg", "-nostdin", "-ss", str(start), "-t", str(dur), "-i", video_path,
+        "-vn",  # 오디오 분석만 하므로 비디오 디코딩을 생략해 CPU/시간을 크게 절약한다
         "-af", "volumedetect", "-f", "null", "-",
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True)
@@ -144,9 +145,10 @@ def render_autocut(
     for i, seg in enumerate(segments):
         part_path = os.path.join(tmp_dir, f"part_{i:04d}.mp4")
         cmd = [
-            "ffmpeg", "-y", "-ss", str(seg.start), "-t", str(seg.duration),
+            "ffmpeg", "-nostdin", "-y", "-ss", str(seg.start), "-t", str(seg.duration),
             "-i", video_path,
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+            "-threads", "2",
             "-c:a", "aac", "-avoid_negative_ts", "make_zero",
             part_path,
         ]
@@ -159,7 +161,7 @@ def render_autocut(
             f.write(f"file '{os.path.abspath(p)}'\n")
 
     cmd = [
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path,
+        "ffmpeg", "-nostdin", "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path,
         "-c", "copy", output_path,
     ]
     subprocess.run(cmd, capture_output=True, text=True, check=True)
