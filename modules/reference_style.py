@@ -7,7 +7,7 @@
 얼마나 길게/짧게 살릴지 정하는 파라미터로 쓴다.
 
 완벽한 '스타일 복제'는 아니고, "이 정도 속도감으로 잘라주면 되겠다"는
-감(pace)을 잡아주는 용도의 뻐대 버전 휴리스틱이다.
+감(pace)을 잡아주는 용도의 뼈대 버전 휴리스틱이다.
 """
 from dataclasses import dataclass
 from typing import List
@@ -37,10 +37,12 @@ class ReferenceStyle:
 def analyze_reference(
     reference_path: str,
     scene_threshold: float = 0.35,
-    max_analyze_sec: float = 300.0,
+    max_analyze_sec: float = 120.0,
 ) -> ReferenceStyle:
     """레퍼런스 영상의 컷 리듬을 분석한다.
-    너무 긴 레퍼런스는 앞부분 max_analyze_sec 초만 분석해서 시간을 아낀다."""
+    너무 긴 레퍼런스는 앞부분 max_analyze_sec 초만 분석해서 시간을 아낀다.
+    (기본값을 300초 -> 120초로 낮춤: pace 추정에는 2분이면 충분하고,
+    클라우드 무료 티어의 제한된 CPU에서 분석 시간을 크게 줄여준다.)"""
     total_duration = probe_duration(reference_path)
     analyze_window = min(total_duration, max_analyze_sec)
 
