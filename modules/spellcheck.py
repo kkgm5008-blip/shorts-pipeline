@@ -133,32 +133,11 @@ def check_subtitles(
 ) -> SpellCheckResult:
     from .srt_utils import seconds_to_ts
 
-    tried_backend = None
-
-    if backend in ("auto", "claude"):
-        texts = [l.text for l in lines]
-        try:
-            corrected = _check_claude(texts)
-        except Exception:
-            corrected = None
-        if corrected is not None:
-            tried_backend = "claude"
-            issues = []
-            for line, fixed in zip(lines, corrected):
-                if fixed and fixed != line.text:
-                    issues.append(
-                        SpellIssue(
-                            line.index,
-                            seconds_to_ts(line.start),
-                            line.text,
-                            fixed,
-                            "AI 문맥 교정 제안",
-                        )
-                    )
-            return SpellCheckResult(tried_backend, issues, len(lines))
-        if backend == "claude":
-            return SpellCheckResult("claude(실패: API 키 없음/오류)", [], 0)
-
+    # auto 모드는 문서화된 우선순위(naver -> claude -> offline)를 그대로 따른다.
+    # naver는 무료면서 가장 정확하므로 먼저 시도하고, 네트워크가 막혀서 실패할
+    # 때만 claude(유료 API)로 넘어간다. (예전엔 순서가 반대로 되어 있어서,
+    # ANTHROPIC_API_KEY가 다른 용도로 secrets에 등록돼 있기만 해도 auto 모드가
+    # 매번 조용히 Claude API를 써버리는 문제가 있었다.)
     if backend in ("auto", "naver"):
         issues = []
         naver_failed = False
@@ -182,6 +161,29 @@ def check_subtitles(
             return SpellCheckResult("naver", issues, len(lines))
         if backend == "naver":
             return SpellCheckResult("naver(실패: 네트워크 접근 불가)", [], 0)
+
+    if backend in ("auto", "claude"):
+        texts = [l.text for l in lines]
+        try:
+            corrected = _check_claude(texts)
+        except Exception:
+            corrected = None
+        if corrected is not None:
+            issues = []
+            for line, fixed in zip(lines, corrected):
+                if fixed and fixed != line.text:
+                    issues.append(
+                        SpellIssue(
+                            line.index,
+                            seconds_to_ts(line.start),
+                            line.text,
+                            fixed,
+                            "AI 문맥 교정 제안",
+                        )
+                    )
+            return SpellCheckResult("claude", issues, len(lines))
+        if backend == "claude":
+            return SpellCheckResult("claude(실패: API 키 없음/오류)", [], 0)
 
     # offline fallback
     issues = []
