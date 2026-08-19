@@ -86,7 +86,7 @@ def extract_clip(
     vertical: bool = True,
 ) -> None:
     duration = end - start
-    cmd = ["ffmpeg", "-y", "-ss", str(start), "-i", input_path, "-t", str(duration)]
+    cmd = ["ffmpeg", "-nostdin", "-y", "-ss", str(start), "-i", input_path, "-t", str(duration)]
     if vertical:
         cmd += ["-vf", _vertical_filter()]
     cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", output_path]
@@ -95,7 +95,7 @@ def extract_clip(
 
 def reformat_vertical(input_path: str, output_path: str) -> None:
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        "ffmpeg", "-nostdin", "-y", "-i", input_path,
         "-vf", _vertical_filter(),
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac",
         output_path,
