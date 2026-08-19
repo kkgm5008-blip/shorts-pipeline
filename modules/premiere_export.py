@@ -138,6 +138,127 @@ def write_autocut_edl(
         f.write("\n".join(lines) + "\n")
 
 
+def _probe_dimensions(video_path: str) -> tuple:
+    """ffprobe로 영상의 (width, height)를 알아낸다. 실패하면 1920x1080으로 대체."""
+    import json
+    import subprocess
+
+    cmd = [
+        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=width,height",
+        "-of", "json", video_path,
+    ]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=15).stdout
+        data = json.loads(out)
+        stream = data["streams"][0]
+        return int(stream["width"]), int(stream["height"])
+    except Exception:
+        return 1920, 1080
+
+
+def write_autocut_premiere_xml(
+    path: str,
+    segments,
+    source_video_path: str,
+    fps: float = 30.0,
+    title: str = "AUTOCUT",
+) -> None:
+    """자동 컷편집 구간을 프리미어 프로가 File > Import로 바로 읽을 수 있는
+    FCP7 XML(레거시 XML 인터체인지, 프리미어/리졸브/파이널컷 공통 지원)로 내보낸다.
+
+    EDL은 'reel 이름'이 프로젝트 내 클립 이름과 우연히 맞아야 자동으로
+    미디어가 연결되는데, 이 방식은 원본 영상의 절대경로(pathurl)를 XML 안에
+    직접 담기 때문에 같은 컴퓨터에서 열면 보통 자동으로 연결된다 (더 안정적).
+    비디오 트랙 하나 + 오디오 트랙 하나로, 원본 소리도 그대로 딸려온다.
+
+    * 이것도 완벽 보장은 아니다 (실제 Premiere에서의 임포트 결과는 버전마다
+      다를 수 있음). 안 열리면 기존 EDL이나 *_segments.csv를 참고해서
+      수동으로 인/아웃을 찍는 게 가장 확실하다.
+    """
+    import html as _html
+    import os as _os
+
+    width, height = _probe_dimensions(source_video_path)
+    abs_path = _os.path.abspath(source_video_path).replace("\\", "/")
+    if not abs_path.startswith("/"):
+        abs_path = "/" + abs_path  # 윈도우 드라이브 경로(C:/...) 대비
+    path_url = "file://localhost" + abs_path
+    source_name = _html.escape(_os.path.basename(source_video_path))
+    timebase = max(1, int(round(fps)))
+
+    def sec_to_frames(sec: float) -> int:
+        return int(round(sec * fps))
+
+    total_frames = sum(sec_to_frames(seg.end - seg.start) for seg in segments)
+    file_defined = False
+
+    def file_block() -> str:
+        nonlocal file_defined
+        if file_defined:
+            return '<file id="file-1"/>'
+        file_defined = True
+        return (
+            f'<file id="file-1">'
+            f'<name>{source_name}</name>'
+            f'<pathurl>{_html.escape(path_url)}</pathurl>'
+            f'<rate><timebase>{timebase}</timebase><ntsc>FALSE</ntsc></rate>'
+            f'<duration>{total_frames}</duration>'
+            f'<media>'
+            f'<video><samplecharacteristics><width>{width}</width><height>{height}</height></samplecharacteristics></video>'
+            f'<audio/>'
+            f'</media>'
+            f'</file>'
+        )
+
+    def clipitem(idx: int, seg, rec_in: int, kind: str) -> str:
+        dur = sec_to_frames(seg.end - seg.start)
+        rec_out = rec_in + dur
+        src_in = sec_to_frames(seg.start)
+        src_out = sec_to_frames(seg.end)
+        return (
+            f'<clipitem id="clipitem-{kind}-{idx}">'
+            f'<name>{source_name}</name>'
+            f'<duration>{dur}</duration>'
+            f'<rate><timebase>{timebase}</timebase><ntsc>FALSE</ntsc></rate>'
+            f'<start>{rec_in}</start><end>{rec_out}</end>'
+            f'<in>{src_in}</in><out>{src_out}</out>'
+            f'{file_block()}'
+            f'</clipitem>'
+        )
+
+    video_clips = []
+    audio_clips = []
+    rec_cursor = 0
+    for i, seg in enumerate(segments, start=1):
+        video_clips.append(clipitem(i, seg, rec_cursor, "v"))
+        audio_clips.append(clipitem(i, seg, rec_cursor, "a"))
+        rec_cursor += sec_to_frames(seg.end - seg.start)
+
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE xmeml>\n'
+        '<xmeml version="5">\n'
+        '<sequence>\n'
+        f'<name>{_html.escape(title)}</name>\n'
+        f'<duration>{total_frames}</duration>\n'
+        f'<rate><timebase>{timebase}</timebase><ntsc>FALSE</ntsc></rate>\n'
+        '<media>\n'
+        '<video>\n'
+        f'<format><samplecharacteristics><width>{width}</width><height>{height}</height></samplecharacteristics></format>\n'
+        f'<track>{"".join(video_clips)}</track>\n'
+        '</video>\n'
+        '<audio>\n'
+        f'<track>{"".join(audio_clips)}</track>\n'
+        '</audio>\n'
+        '</media>\n'
+        '</sequence>\n'
+        '</xmeml>\n'
+    )
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(xml)
+
+
 def write_autocut_segments_csv(path: str, segments) -> None:
     with open(path, "w", encoding="utf-8") as f:
         f.write("index,start_sec,end_sec,duration_sec,score,reason\n")
