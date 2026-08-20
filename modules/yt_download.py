@@ -20,12 +20,28 @@ import os
 REFERENCE_MAX_DURATION_SEC = 20 * 60  # 20분
 
 
-def download_youtube_video(url: str, output_dir: str, cookies_path: str = None) -> str:
+def download_youtube_video(
+    url: str,
+    output_dir: str,
+    cookies_path: str = None,
+    max_duration_sec: int = REFERENCE_MAX_DURATION_SEC,
+    max_height: int = 720,
+) -> str:
     """유튜브 URL의 영상을 다운로드해서 output_dir 안에 mp4로 저장하고,
     저장된 파일의 경로를 반환한다. 실패하면 RuntimeError를 던진다.
 
+    브라우저로 직접 파일을 업로드하면 Streamlit이 영상 전체를 먼저 서버
+    메모리에 올리기 때문에, 큰 영상(1GB+)에서는 메모리 부족으로 서버가
+    죽을 수 있다. yt-dlp는 디스크에 스트리밍으로 바로 저장하므로 이 문제를
+    피할 수 있어서, 큰 영상은 파일 업로드 대신 유튜브 링크로 지정하는 것을
+    권장한다.
+
     cookies_path: (선택) 유튜브 로그인 쿠키가 담긴 cookies.txt(Netscape 형식)
     경로. 클라우드 서버 IP가 봇으로 차단(403)당할 때 우회를 시도하는 용도.
+    max_duration_sec: 이보다 긴 영상은 다운로드를 거부한다 (레퍼런스 영상은
+    짧게, 숏폼 소스 영상은 길게 등 호출하는 쪽에서 용도에 맞게 조절).
+    max_height: 다운로드할 최대 해상도(세로 픽셀). 낮출수록 다운로드 용량과
+    이후 처리(STT, 인코딩) 부담이 줄어든다.
     """
     try:
         import yt_dlp
@@ -36,22 +52,24 @@ def download_youtube_video(url: str, output_dir: str, cookies_path: str = None) 
         ) from e
 
     os.makedirs(output_dir, exist_ok=True)
-    outtmpl = os.path.join(output_dir, "%(id)s_reference.%(ext)s")
+    outtmpl = os.path.join(output_dir, "%(id)s.%(ext)s")
 
     def _reject_too_long(info):
         duration = info.get("duration")
-        if duration and duration > REFERENCE_MAX_DURATION_SEC:
-            minutes = REFERENCE_MAX_DURATION_SEC // 60
+        if duration and duration > max_duration_sec:
+            minutes = max_duration_sec // 60
             return (
-                f"영상이 너무 깁니다 ({duration/60:.0f}분). 레퍼런스 영상은 "
-                f"컷 리듬만 참고하므로 {minutes}분 이하 영상을 사용해주세요."
+                f"영상이 너무 깁니다 ({duration/60:.0f}분). {minutes}분 "
+                f"이하 영상만 지원합니다."
             )
         return None
 
     ydl_opts = {
         "outtmpl": outtmpl,
-        # 레퍼런스용이므로 720p 이하로 제한해서 다운로드 용량/시간을 아낀다.
-        "format": "bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]/b",
+        "format": (
+            f"bv*[ext=mp4][height<={max_height}]+ba[ext=m4a]/"
+            f"b[ext=mp4][height<={max_height}]/b"
+        ),
         "merge_output_format": "mp4",
         "noplaylist": True,
         "quiet": True,
