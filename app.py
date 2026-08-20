@@ -11,6 +11,7 @@
 그러면 브라우저가 자동으로 열리면서 http://localhost:8501 로 접속됩니다.
 """
 import io
+import math
 import os
 import sys
 import traceback
@@ -20,11 +21,15 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from modules.srt_utils import parse_srt
+from modules.srt_utils import parse_srt, write_srt
 from modules.transcribe import ensure_subtitles
 from modules.spellcheck import check_subtitles, write_report
 from modules.intro_check import analyze_intro
-from modules.shorts import probe_duration, select_highlights, export_highlight_clips, reformat_vertical
+from modules.shorts import (
+    probe_duration, select_highlights, select_intro_candidates,
+    export_highlight_clips, reformat_vertical, reformat_vertical_with_intro,
+    slice_subtitles_with_intro,
+)
 from modules.premiere_export import (
     build_markers_from_pipeline, write_premiere_markers_csv, write_readable_markers,
     write_autocut_edl, write_autocut_premiere_xml, write_autocut_segments_csv, write_autocut_report,
@@ -389,16 +394,16 @@ with tab1:
             fps = st.number_input("마커용 fps (프리미어 시퀀스와 맞추세요)", value=30.0, key="t1_fps")
         skip_vertical = st.checkbox("전체 영상 9:16 변환 생략 (시간 절약)", value=True, key="t1_skipvert")
 
-    section_header(3, "실행")
-    run1 = st.button("🚀 실행", type="primary", key="t1_run")
+    section_header(3, "분석하기")
+    run1 = st.button("🔍 영상 분석하기", type="primary", key="t1_run")
 
     if run1:
         if not video_file:
             st.error("영상 파일을 먼저 올려주세요.")
         else:
-            # 새로 실행하는 것이므로 이전 결과/에러는 지운다.
-            st.session_state.pop("tab1_result", None)
-            st.session_state.pop("tab1_error", None)
+            # 새로 분석하는 것이므로 이전 분석/결과/에러는 지운다.
+            for _k in ("tab1_analysis", "tab1_result", "tab1_error"):
+                st.session_state.pop(_k, None)
 
             video_path = save_upload(video_file)
             srt_path = save_upload(srt_file) if srt_file else None
@@ -420,45 +425,42 @@ with tab1:
 
                     status.update(label="인트로 유무 분석 중...")
                     intro_result = analyze_intro(video_path, lines)
-                    st.write(("✅ 인트로 있음" if intro_result.has_probable_intro else "⚠️ 인트로 없음(추가 권장)") + f" - {intro_result.reason}")
+                    st.write(("✅ 인트로 있음" if intro_result.has_probable_intro else "⚠️ 인트로 없음 - 아래에서 후보를 골라주세요") + f" - {intro_result.reason}")
 
-                    status.update(label=f"숏폼 하이라이트 {top_n}개 추출 중...")
+                    status.update(label="숏폼 하이라이트 후보 탐색 중...")
                     duration = probe_duration(video_path)
-                    highlights = select_highlights(lines, duration, clip_len=clip_len, top_n=int(top_n))
-                    shorts_dir = os.path.join(out_dir, f"{base_name}_shorts")
-                    clip_infos = export_highlight_clips(video_path, lines, highlights, shorts_dir, base_name) if highlights else []
-                    st.write(f"숏폼 클립 {len(clip_infos)}개 생성" if clip_infos else "하이라이트 후보를 찾지 못했습니다 (자막 부족 또는 영상이 너무 짧음)")
+                    highlight_candidates = select_highlights(lines, duration, clip_len=clip_len, top_n=8, stride=5.0)
+                    st.write(
+                        f"하이라이트 후보 {len(highlight_candidates)}개 발견 - 아래에서 실제로 만들 구간을 골라주세요"
+                        if highlight_candidates else "하이라이트 후보를 찾지 못했습니다 (자막 부족 또는 영상이 너무 짧음)"
+                    )
 
-                    vertical_path = None
-                    if not skip_vertical:
-                        status.update(label="전체 영상 9:16 변환 중...")
-                        vertical_path = os.path.join(out_dir, f"{base_name}_vertical.mp4")
-                        reformat_vertical(video_path, vertical_path)
+                    intro_candidates = []
+                    if not intro_result.has_probable_intro:
+                        status.update(label="인트로 후보 탐색 중...")
+                        intro_candidates = select_intro_candidates(lines, duration)
+                        st.write(
+                            f"인트로 후보 {len(intro_candidates)}개 발견"
+                            if intro_candidates else "인트로로 쓸만한 후보를 찾지 못했습니다."
+                        )
 
-                    status.update(label="프리미어 마커 생성 중...")
-                    markers = build_markers_from_pipeline(intro_result, highlights, spell_result.issues)
-                    csv_path = os.path.join(out_dir, f"{base_name}_markers.csv")
-                    txt_path = os.path.join(out_dir, f"{base_name}_markers_readable.txt")
-                    write_premiere_markers_csv(csv_path, markers, fps=fps)
-                    write_readable_markers(txt_path, markers)
+                    status.update(label="분석 완료! 아래에서 후보를 고르고 최종 결과를 만들어주세요.", state="complete")
 
-                    status.update(label="완료!", state="complete")
-
-                # 결과를 session_state에 저장해두면, 이후에 다운로드 버튼을
-                # 눌러서 스크립트가 다시 실행되어도(=스트림릿 rerun) 결과가
-                # 사라지지 않고 계속 화면에 남아있는다.
-                st.session_state["tab1_result"] = {
+                st.session_state["tab1_analysis"] = {
+                    "video_path": video_path,
                     "base_name": base_name,
                     "out_dir": out_dir,
                     "srt_out": srt_out,
                     "report_path": report_path,
+                    "lines": lines,
+                    "spell_result": spell_result,
                     "intro_result": intro_result,
-                    "clip_infos": clip_infos,
-                    "shorts_dir": shorts_dir,
-                    "vertical_path": vertical_path,
-                    "csv_path": csv_path,
-                    "txt_path": txt_path,
-                    "issues_count": len(spell_result.issues),
+                    "duration": duration,
+                    "highlight_candidates": highlight_candidates,
+                    "intro_candidates": intro_candidates,
+                    "top_n_default": int(top_n),
+                    "skip_vertical": skip_vertical,
+                    "fps": fps,
                 }
 
             except Exception as e:
@@ -472,18 +474,150 @@ with tab1:
         with st.expander("자세한 오류 내용 보기"):
             st.code(err["traceback"], language="text")
 
+    # ---- 분석은 끝났지만 아직 최종 결과를 안 만들었으면: 후보 미리보기 +
+    #      선택 UI를 보여준다. (st.video의 start_time/end_time으로 원본 영상을
+    #      그 구간만 바로 재생하므로, 후보마다 따로 미리보기 영상을 렌더링할
+    #      필요가 없어 빠르다.) ----
+    if st.session_state.get("tab1_analysis") and not st.session_state.get("tab1_result"):
+        a = st.session_state["tab1_analysis"]
+        st.markdown("")
+        result_title("🔍 분석 결과 - 후보를 고르고 최종 결과를 만들어주세요")
+
+        spell_result = a["spell_result"]
+        intro_result = a["intro_result"]
+        am1, am2, am3 = st.columns(3)
+        am1.metric("자막 줄 수", f"{len(a['lines'])}줄")
+        am2.metric("맞춤법 이슈", f"{len(spell_result.issues)}건")
+        am3.metric("인트로", "있음 ✅" if intro_result.has_probable_intro else "없음 ⚠️")
+
+        intro_choice_idx = None
+        if not intro_result.has_probable_intro:
+            st.markdown("#### 🎬 인트로 후보")
+            st.caption(intro_result.reason + " " + intro_result.suggestion)
+            if a["intro_candidates"]:
+                intro_labels = ["사용 안 함"]
+                for i, c in enumerate(a["intro_candidates"], start=1):
+                    with st.container(border=True):
+                        st.video(a["video_path"], start_time=int(c.start), end_time=int(math.ceil(c.end)))
+                        st.caption(f"후보 {i} · {c.start:.1f}s ~ {c.end:.1f}s · {c.preview_text or '(자막 없음)'}")
+                    intro_labels.append(f"후보 {i} ({c.start:.1f}s~{c.end:.1f}s)")
+                intro_pick = st.radio(
+                    "인트로로 쓸 후보를 골라주세요 (골라두면 숏폼 클립과 9:16 전체 변환본 맨 앞에 자동으로 붙습니다)",
+                    intro_labels, index=0, key="t1_intro_pick",
+                )
+                if intro_pick != "사용 안 함":
+                    intro_choice_idx = intro_labels.index(intro_pick) - 1
+            else:
+                st.info("인트로 후보를 찾지 못했습니다 (자막이 부족합니다).")
+
+        st.markdown("#### ✂️ 숏폼 하이라이트 후보")
+        if a["highlight_candidates"]:
+            st.caption(
+                "미리보기를 보고 실제로 숏폼으로 만들 구간만 체크하세요. "
+                f"기본으로 점수가 높은 상위 {a['top_n_default']}개가 체크되어 있습니다."
+            )
+            for i, c in enumerate(a["highlight_candidates"]):
+                with st.container(border=True):
+                    hc1, hc2 = st.columns([2, 1])
+                    with hc1:
+                        st.video(a["video_path"], start_time=int(c.start), end_time=int(math.ceil(c.end)))
+                    with hc2:
+                        st.checkbox(
+                            f"후보 {i + 1} 선택", value=(i < a["top_n_default"]), key=f"t1_hl_{i}",
+                        )
+                        st.write(f"⏱ {c.start:.1f}s ~ {c.end:.1f}s")
+                        st.write(f"점수 {c.score:.1f}")
+                        st.caption(c.preview_text or "(자막 없음)")
+        else:
+            st.info("하이라이트 후보를 찾지 못했습니다.")
+
+        finalize1 = st.button("✅ 선택한 대로 최종 결과 만들기", type="primary", key="t1_finalize")
+        if finalize1:
+            selected = [c for i, c in enumerate(a["highlight_candidates"]) if st.session_state.get(f"t1_hl_{i}")]
+            intro_tuple = None
+            if intro_choice_idx is not None:
+                ic = a["intro_candidates"][intro_choice_idx]
+                intro_tuple = (ic.start, ic.end)
+
+            try:
+                with st.status("선택한 구간으로 최종 결과 만드는 중...", expanded=True) as status:
+                    shorts_dir = os.path.join(a["out_dir"], f"{a['base_name']}_shorts")
+                    clip_infos = (
+                        export_highlight_clips(
+                            a["video_path"], a["lines"], selected, shorts_dir, a["base_name"], intro=intro_tuple,
+                        ) if selected else []
+                    )
+                    st.write(f"숏폼 클립 {len(clip_infos)}개 생성" if clip_infos else "선택된 하이라이트가 없어 숏폼 클립은 만들지 않았습니다.")
+
+                    vertical_path = None
+                    vertical_srt_path = None
+                    if not a["skip_vertical"]:
+                        status.update(label="전체 영상 9:16 변환 중...")
+                        vertical_path = os.path.join(a["out_dir"], f"{a['base_name']}_vertical.mp4")
+                        if intro_tuple:
+                            reformat_vertical_with_intro(
+                                a["video_path"], intro_tuple[0], intro_tuple[1], a["duration"], vertical_path,
+                            )
+                            # 인트로를 붙이면 타임라인이 밀리므로, 원본 srt_out을 그대로
+                            # 쓰면 자막이 안 맞는다. 인트로 길이만큼 밀어서 새로 만든다.
+                            vertical_srt_path = os.path.join(a["out_dir"], f"{a['base_name']}_vertical.srt")
+                            vertical_lines = slice_subtitles_with_intro(
+                                a["lines"], intro_tuple[0], intro_tuple[1], 0.0, a["duration"],
+                            )
+                            write_srt(vertical_srt_path, vertical_lines)
+                        else:
+                            reformat_vertical(a["video_path"], vertical_path)
+                            vertical_srt_path = a["srt_out"]
+
+                    status.update(label="프리미어 마커 생성 중...")
+                    markers = build_markers_from_pipeline(a["intro_result"], selected, spell_result.issues)
+                    csv_path = os.path.join(a["out_dir"], f"{a['base_name']}_markers.csv")
+                    txt_path = os.path.join(a["out_dir"], f"{a['base_name']}_markers_readable.txt")
+                    write_premiere_markers_csv(csv_path, markers, fps=a["fps"])
+                    write_readable_markers(txt_path, markers)
+
+                    status.update(label="완료!", state="complete")
+
+                # 결과를 session_state에 저장해두면, 이후에 다운로드 버튼을
+                # 눌러서 스크립트가 다시 실행되어도(=스트림릿 rerun) 결과가
+                # 사라지지 않고 계속 화면에 남아있는다.
+                st.session_state["tab1_result"] = {
+                    "base_name": a["base_name"],
+                    "out_dir": a["out_dir"],
+                    "srt_out": a["srt_out"],
+                    "report_path": a["report_path"],
+                    "intro_result": a["intro_result"],
+                    "intro_applied": intro_tuple is not None,
+                    "clip_infos": clip_infos,
+                    "shorts_dir": shorts_dir,
+                    "vertical_path": vertical_path,
+                    "vertical_srt_path": vertical_srt_path,
+                    "csv_path": csv_path,
+                    "txt_path": txt_path,
+                    "issues_count": len(spell_result.issues),
+                }
+                st.rerun()
+            except Exception as e:
+                st.session_state["tab1_error"] = {"message": str(e), "traceback": traceback.format_exc()}
+
     if st.session_state.get("tab1_result"):
         r = st.session_state["tab1_result"]
         base_name = r["base_name"]
 
         st.success("처리 완료! 아래에서 결과를 확인/다운로드하세요.")
+        if r.get("intro_applied"):
+            st.info("🎬 고르신 인트로 후보가 숏폼 클립과 9:16 전체 변환본 맨 앞에 붙었습니다.")
+
+        if st.session_state.get("tab1_analysis") and st.button("🔁 후보 다시 고르기", key="t1_reselect"):
+            st.session_state.pop("tab1_result", None)
+            st.rerun()
 
         result_title("📋 결과")
         intro_result = r["intro_result"]
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("숏폼 클립", f"{len(r['clip_infos'])}개")
         m2.metric("맞춤법 이슈", f"{r.get('issues_count', 0)}건")
-        m3.metric("인트로", "있음 ✅" if intro_result.has_probable_intro else "없음 ⚠️")
+        m3.metric("인트로", "있음 ✅" if intro_result.has_probable_intro else ("적용됨 🎬" if r.get("intro_applied") else "없음 ⚠️"))
         m4.metric("9:16 변환", "완료" if r["vertical_path"] else "생략")
 
         r1, r2, r3 = st.columns(3)
@@ -497,10 +631,12 @@ with tab1:
                 st.markdown("**인트로 판단**")
                 if intro_result.has_probable_intro:
                     st.success("인트로 있음")
+                elif r.get("intro_applied"):
+                    st.success("골라주신 인트로 후보 적용됨")
                 else:
                     st.warning("인트로 없음")
                 st.caption(intro_result.reason)
-                if not intro_result.has_probable_intro:
+                if not intro_result.has_probable_intro and not r.get("intro_applied"):
                     st.info(intro_result.suggestion)
         with r3:
             with st.container(border=True):
@@ -526,6 +662,8 @@ with tab1:
             st.markdown("#### 📱 9:16 전체 변환본")
             st.video(r["vertical_path"])
             download_button_for_file(r["vertical_path"], "⬇ 세로 영상 다운로드", key="t1_vertical")
+            if r.get("vertical_srt_path"):
+                download_button_for_file(r["vertical_srt_path"], "⬇ 세로 영상 자막 SRT", key="t1_vertical_srt")
 
         st.markdown("")
         out_size_mb = folder_size_mb(r["out_dir"])
