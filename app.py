@@ -91,11 +91,13 @@ def save_upload(uploaded_file, subdir=""):
     return path
 
 
-# zip으로 자동 묶기를 허용할 최대 결과 폴더 크기(MB). 이보다 크면 메모리에
-# 전체를 두 번(원본 + zip 버퍼) 올리게 되어, 클라우드 무료 티어(RAM 제한적)에서
-# 방금 렌더링을 마친 직후 OOM으로 앱이 죽을 위험이 있다. 그런 경우엔 zip을
+# zip으로 자동 묶기를 허용할 최대 결과 폴더 크기(MB). zip은 실제로 다운로드
+# 버튼을 누른 시점에만 만들어지지만(아래 download_button_for_file/deferred 방식
+# 참고), 그 순간에는 폴더 전체를 메모리에 올리게 된다. Streamlit Community
+# Cloud 무료 티어는 RAM이 최대 약 2.7GB 정도로 알려져 있어서, 그보다 지나치게
+# 크면 zip 생성 자체가 실패하거나 앱이 느려질 수 있다. 그런 경우엔 zip을
 # 건너뛰고 이미 있는 개별 다운로드 버튼을 쓰도록 안내한다.
-ZIP_AUTO_MAX_MB = 200
+ZIP_AUTO_MAX_MB = 3000
 
 
 def folder_size_mb(folder_path: str) -> float:
@@ -139,13 +141,20 @@ def zip_multiple_folders(folder_paths: list) -> bytes:
 
 
 def download_button_for_file(path: str, label: str = None, key: str = None):
+    """다운로드 버튼을 만든다.
+
+    중요: 파일 내용을 바로 읽어서 넘기지 않고, "콜백(callable)"을 넘긴다.
+    이렇게 하면 스트림릿이 파일을 실제로 읽는 시점을 사용자가 그 버튼을
+    "클릭했을 때"로 미뤄준다(deferred). 만약 바로 bytes를 읽어서 넘기면,
+    이 함수가 호출될 때마다(=화면이 다시 그려질 때마다, 즉 다른 버튼을 눌러도
+    매번!) 큰 영상 파일 전체를 메모리에 올리게 되어서 용량이 큰 파일에서는
+    다운로드가 매우 느려지거나 무한 대기하는 것처럼 보이는 원인이 된다.
+    """
     if not path or not os.path.exists(path):
         return
-    with open(path, "rb") as f:
-        data = f.read()
     st.download_button(
         label or f"⬇ {os.path.basename(path)}",
-        data,
+        data=lambda p=path: open(p, "rb").read(),
         file_name=os.path.basename(path),
         key=key or f"dl_{path}",
     )
@@ -233,12 +242,6 @@ with tab1:
                     write_premiere_markers_csv(csv_path, markers, fps=fps)
                     write_readable_markers(txt_path, markers)
 
-                    status.update(label="결과 압축 준비 중...")
-                    zip_bytes = None
-                    out_size_mb = folder_size_mb(out_dir)
-                    if out_size_mb <= ZIP_AUTO_MAX_MB:
-                        zip_bytes = zip_folder(out_dir)
-
                     status.update(label="완료!", state="complete")
 
                 # 결과를 session_state에 저장해두면, 이후에 다운로드 버튼을
@@ -255,8 +258,6 @@ with tab1:
                     "vertical_path": vertical_path,
                     "csv_path": csv_path,
                     "txt_path": txt_path,
-                    "out_size_mb": out_size_mb,
-                    "zip_bytes": zip_bytes,
                 }
 
             except Exception as e:
@@ -312,14 +313,16 @@ with tab1:
             download_button_for_file(r["vertical_path"], "⬇ 세로 영상 다운로드", key="t1_vertical")
 
         st.markdown("---")
-        if r["zip_bytes"] is not None:
+        out_size_mb = folder_size_mb(r["out_dir"])
+        if out_size_mb <= ZIP_AUTO_MAX_MB:
             st.download_button(
-                "📦 전체 결과 zip으로 한번에 다운로드", r["zip_bytes"],
+                "📦 전체 결과 zip으로 한번에 다운로드",
+                data=lambda d=r["out_dir"]: zip_folder(d),
                 file_name=f"{base_name}_결과.zip", key="t1_zip_all",
             )
         else:
             st.info(
-                f"결과 폴더가 {r['out_size_mb']:.0f}MB로 커서 zip 묶음은 생략했습니다 "
+                f"결과 폴더가 {out_size_mb:.0f}MB로 커서 zip 묶음은 생략했습니다 "
                 "(메모리 절약 목적). 위의 개별 다운로드 버튼을 이용해주세요."
             )
 
@@ -371,10 +374,9 @@ with tab2:
         elif len(raw_video_files) > MAX_RAW_VIDEOS:
             st.error(f"원본 영상은 최대 {MAX_RAW_VIDEOS}개까지만 올릴 수 있습니다. 일부를 제거한 뒤 다시 실행해주세요. (현재 {len(raw_video_files)}개)")
         else:
-            # 새로 실행하는 것이므로 이전 결과/에러/합본 zip은 지운다.
+            # 새로 실행하는 것이므로 이전 결과/에러는 지운다.
             st.session_state.pop("tab2_results", None)
             st.session_state.pop("tab2_errors", None)
-            st.session_state.pop("tab2_combined_zip", None)
 
             target_dur_val = float(target_duration) if target_duration.strip() else None
 
@@ -464,10 +466,6 @@ with tab2:
                         write_autocut_segments_csv(csv_path, segments)
                         write_autocut_report(report_path, original_duration, segments, ref_desc, noise_db, min_silence_len)
 
-                        status.update(label="결과 압축 준비 중...")
-                        out_size_mb = folder_size_mb(out_dir)
-                        zip_bytes = zip_folder(out_dir) if out_size_mb <= ZIP_AUTO_MAX_MB else None
-
                         status.update(label="완료!", state="complete")
 
                     results.append({
@@ -478,8 +476,6 @@ with tab2:
                         "edl_path": edl_path,
                         "csv_path": csv_path,
                         "report_path": report_path,
-                        "out_size_mb": out_size_mb,
-                        "zip_bytes": zip_bytes,
                     })
                     st.success(f"[{video_label}] 처리 완료!")
                 except Exception as e:
@@ -492,15 +488,6 @@ with tab2:
 
             st.session_state["tab2_results"] = results
             st.session_state["tab2_errors"] = errors
-
-            # 영상이 2개 이상이고, 결과가 하나라도 있으면 전체 합본 zip도 미리 준비해둔다.
-            if len(results) > 1:
-                total_size_mb = sum(r["out_size_mb"] for r in results)
-                if total_size_mb <= ZIP_AUTO_MAX_MB:
-                    combined = zip_multiple_folders([r["out_dir"] for r in results])
-                    st.session_state["tab2_combined_zip"] = {"bytes": combined, "size_mb": total_size_mb}
-                else:
-                    st.session_state["tab2_combined_zip"] = {"bytes": None, "size_mb": total_size_mb}
 
     # ---- 결과 표시 (버튼 클릭으로 인한 rerun에도 사라지지 않도록,
     #      run2 버튼의 True/False와 무관하게 항상 session_state에서 읽어온다) ----
@@ -538,27 +525,31 @@ with tab2:
                 download_button_for_file(r["csv_path"], "⬇ 구간 목록 CSV", key=f"t2_{idx}_csv")
             download_button_for_file(r["report_path"], "⬇ 요약 리포트", key=f"t2_{idx}_report")
 
-            if r["zip_bytes"] is not None:
+            r_out_size_mb = folder_size_mb(r["out_dir"])
+            if r_out_size_mb <= ZIP_AUTO_MAX_MB:
                 st.download_button(
-                    "📦 이 영상 결과 zip으로 한번에 다운로드", r["zip_bytes"],
+                    "📦 이 영상 결과 zip으로 한번에 다운로드",
+                    data=lambda d=r["out_dir"]: zip_folder(d),
                     file_name=f"{base_name}_autocut_결과.zip", key=f"t2_{idx}_zip",
                 )
             else:
                 st.info(
-                    f"결과 폴더가 {r['out_size_mb']:.0f}MB로 커서 zip 묶음은 생략했습니다 "
+                    f"결과 폴더가 {r_out_size_mb:.0f}MB로 커서 zip 묶음은 생략했습니다 "
                     "(메모리 절약 목적). 위의 개별 다운로드 버튼을 이용해주세요."
                 )
             st.markdown("---")
 
-        combined = st.session_state.get("tab2_combined_zip")
-        if combined:
-            if combined["bytes"] is not None:
+        if len(results) > 1:
+            all_out_dirs = [r["out_dir"] for r in results]
+            total_size_mb = sum(folder_size_mb(d) for d in all_out_dirs)
+            if total_size_mb <= ZIP_AUTO_MAX_MB:
                 st.download_button(
                     f"📦📦 전체 {len(results)}개 영상 결과 한번에 zip 다운로드",
-                    combined["bytes"], file_name="전체_autocut_결과.zip", key="t2_zip_all",
+                    data=lambda dirs=tuple(all_out_dirs): zip_multiple_folders(list(dirs)),
+                    file_name="전체_autocut_결과.zip", key="t2_zip_all",
                 )
             else:
                 st.info(
-                    f"전체 결과 폴더가 {combined['size_mb']:.0f}MB로 커서 통합 zip 묶음은 생략했습니다 "
+                    f"전체 결과 폴더가 {total_size_mb:.0f}MB로 커서 통합 zip 묶음은 생략했습니다 "
                     "(메모리 절약 목적). 각 영상별 개별 zip/다운로드 버튼을 이용해주세요."
                 )
