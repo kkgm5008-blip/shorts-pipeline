@@ -30,8 +30,9 @@ from modules.premiere_export import (
     write_autocut_edl, write_autocut_premiere_xml, write_autocut_segments_csv, write_autocut_report,
 )
 from modules.reference_style import analyze_reference
-from modules.autocut import build_segments, apply_target_duration, render_autocut
+from modules.autocut import build_segments, apply_target_duration, render_autocut, parse_target_duration
 from modules.yt_download import download_youtube_video
+from modules.revision import interpret_revision
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
@@ -164,7 +165,11 @@ st.title("🎬 숏폼 자동화 도구")
 st.caption("영상을 올리면 숏폼 추출 / 인트로 체크 / 맞춤법 검사 / 자동 컷편집을 해줍니다. "
            "자막은 절대 영상에 굽지 않아서 프리미어 프로에서 자유롭게 다시 수정할 수 있습니다.")
 
-tab1, tab2 = st.tabs(["📹 숏폼 만들기 (main.py 기능)", "✂️ 자동 컷편집 (autocut.py 기능)"])
+tab1, tab2, tab3 = st.tabs([
+    "📹 숏폼 만들기 (main.py 기능)",
+    "✂️ 자동 컷편집 (autocut.py 기능)",
+    "📝 맞춤법 검사",
+])
 
 # ============================================================
 # TAB 1: 숏폼 만들기
@@ -361,8 +366,21 @@ with tab2:
             noise_db = st.number_input("무음 판정 데시벨 기준 (작을수록 민감)", value=-35.0, key="t2_noisedb")
             min_silence_len = st.number_input("이 길이(초) 이상 조용하면 무음", value=0.5, key="t2_minsil")
         with c2:
-            target_duration = st.text_input("목표 최종 길이(초) - 비워두면 압축 안 함", value="", key="t2_target")
-            max_clip_factor = st.number_input("레퍼런스 평균 클립 길이의 몇 배까지 허용", value=1.8, key="t2_maxfactor")
+            target_duration = st.text_input(
+                "목표 최종 길이 - 비워두면 압축 안 함",
+                value="", key="t2_target",
+                placeholder="예: 420, 7분, 7분30초, 7:30, 70%",
+                help="초 단위 숫자 외에도 '7분', '7분30초', '7:30', '70%'(원본 길이의 70%) "
+                     "형식으로 적을 수 있습니다. 예: 10분짜리 영상을 7분으로 줄이고 싶으면 "
+                     "'7분'이라고 적으면 됩니다.",
+            )
+            max_clip_factor = st.number_input(
+                "컷 리듬(편집 속도) - 레퍼런스 평균 클립 길이의 몇 배까지 허용",
+                value=1.8, key="t2_maxfactor",
+                help="한 컷을 얼마나 길게 유지할지 정합니다. 값을 낮추면(예: 1.0) 컷이 더 "
+                     "빨리빨리 바뀌고, 값을 높이면(예: 2.5) 한 장면을 더 길게 유지해서 "
+                     "장면 전환이 느려지고 덜 끊기는 느낌을 줍니다.",
+            )
         with c3:
             fps2 = st.number_input("EDL용 fps (프리미어 시퀀스와 맞추세요)", value=30.0, key="t2_fps")
 
@@ -378,7 +396,8 @@ with tab2:
             st.session_state.pop("tab2_results", None)
             st.session_state.pop("tab2_errors", None)
 
-            target_dur_val = float(target_duration) if target_duration.strip() else None
+            # target_duration(목표 최종 길이) 파싱은 "70%" 같은 상대값을 지원하기
+            # 위해, 영상마다 원본 길이를 알고 난 뒤(아래 반복문 안) 개별적으로 한다.
 
             # ---- 레퍼런스는 영상이 여러 개여도 딱 한 번만 준비해서 재사용한다 ----
             reference_style = None
@@ -431,6 +450,11 @@ with tab2:
                         if subtitle_lines:
                             st.write(f"자막 {len(subtitle_lines)}줄을 재미 점수 계산에 활용합니다.")
 
+                        # "70%"처럼 원본 길이에 상대적인 목표 길이를 지원하려면
+                        # 이 영상의 원본 길이를 먼저 알아야 한다.
+                        original_duration = probe_duration(raw_video_path)
+                        target_dur_val = parse_target_duration(target_duration, original_duration)
+
                         status.update(label="무음 구간 분석 + 구간별 점수 계산 중...")
                         segments = build_segments(
                             raw_video_path, subtitle_lines=subtitle_lines,
@@ -438,7 +462,6 @@ with tab2:
                             reference_style=reference_style, max_clip_factor=max_clip_factor,
                         )
                         segments = apply_target_duration(segments, target_dur_val)
-                        original_duration = probe_duration(raw_video_path)
                         kept_duration = sum(s.duration for s in segments)
                         st.write(f"최종 {len(segments)}개 구간 유지, 총 {kept_duration:.1f}초 "
                                  f"(원본 {original_duration:.1f}초 대비 {kept_duration/original_duration*100:.1f}%)")
@@ -476,6 +499,23 @@ with tab2:
                         "edl_path": edl_path,
                         "csv_path": csv_path,
                         "report_path": report_path,
+                        # ---- 아래는 화면 표시용이 아니라, "수정 요청하기"로 같은
+                        #      영상을 다른 파라미터로 다시 편집할 때 재사용하기
+                        #      위해 저장해두는 값들이다. ----
+                        "raw_video_path": raw_video_path,
+                        "subtitle_lines": subtitle_lines,
+                        "reference_style": reference_style,
+                        "ref_desc": ref_desc,
+                        "fps2": fps2,
+                        "original_duration": original_duration,
+                        "kept_duration": kept_duration,
+                        "params": {
+                            "noise_db": noise_db,
+                            "min_silence_len": min_silence_len,
+                            "max_clip_factor": max_clip_factor,
+                            "target_duration": target_dur_val,
+                        },
+                        "revision_history": [],
                     })
                     st.success(f"[{video_label}] 처리 완료!")
                 except Exception as e:
@@ -537,6 +577,88 @@ with tab2:
                     f"결과 폴더가 {r_out_size_mb:.0f}MB로 커서 zip 묶음은 생략했습니다 "
                     "(메모리 절약 목적). 위의 개별 다운로드 버튼을 이용해주세요."
                 )
+
+            # ---- 수정 요청하기: 자유 텍스트로 피드백을 적으면 파라미터를
+            #      자동으로 조정해서 이 영상만 다시 편집한다. ----
+            if r.get("raw_video_path"):
+                with st.expander("🔧 수정 요청하기 (예: '7분으로 줄여줘', '너무 안 이어지는 것 같다')"):
+                    if r.get("revision_history"):
+                        st.caption("지금까지의 수정 요청 내역:")
+                        for h in r["revision_history"]:
+                            st.write(f"- \"{h['feedback']}\" → {h['explanation']}")
+                        st.markdown("&nbsp;", unsafe_allow_html=True)
+
+                    feedback = st.text_area(
+                        "수정하고 싶은 점을 자유롭게 적어주세요",
+                        key=f"t2_{idx}_feedback",
+                        placeholder="예: 분수가 마음에 안든다, 7분으로 줄여줘 / 너무 안 이어지는 것 같다 / 컷이 너무 빨라요",
+                    )
+                    st.caption(
+                        "입력한 내용을 해석해서 무음 판정 기준, 컷 리듬, 목표 길이 같은 "
+                        "파라미터를 자동으로 조정한 뒤 이 영상만 다시 편집합니다. "
+                        "(ANTHROPIC_API_KEY가 설정돼 있으면 AI가 문맥까지 이해해서 조정하고, "
+                        "없으면 자주 쓰는 표현을 규칙 기반으로 해석합니다.)"
+                    )
+                    if st.button("🔄 이 요청대로 다시 편집", key=f"t2_{idx}_revise_btn"):
+                        if not feedback.strip():
+                            st.warning("수정하고 싶은 내용을 먼저 입력해주세요.")
+                        else:
+                            try:
+                                with st.spinner("요청을 해석하고 다시 편집하는 중..."):
+                                    new_params = interpret_revision(
+                                        feedback, r["params"],
+                                        original_duration=r["original_duration"],
+                                        kept_duration=r["kept_duration"],
+                                    )
+
+                                    new_segments = build_segments(
+                                        r["raw_video_path"], subtitle_lines=r["subtitle_lines"],
+                                        noise_db=new_params.noise_db, min_silence_len=new_params.min_silence_len,
+                                        reference_style=r["reference_style"], max_clip_factor=new_params.max_clip_factor,
+                                    )
+                                    new_segments = apply_target_duration(new_segments, new_params.target_duration)
+                                    if not new_segments:
+                                        raise ValueError(
+                                            "남는 구간이 없습니다. 요청 내용을 조금 다르게 바꿔서 다시 시도해주세요."
+                                        )
+                                    new_kept_duration = sum(s.duration for s in new_segments)
+
+                                    render_autocut(r["raw_video_path"], new_segments, r["autocut_mp4"])
+                                    write_autocut_edl(
+                                        r["edl_path"], new_segments,
+                                        source_reel_name=os.path.abspath(r["raw_video_path"]), fps=r["fps2"],
+                                    )
+                                    write_autocut_premiere_xml(
+                                        r["xml_path"], new_segments, r["raw_video_path"],
+                                        fps=r["fps2"], title=base_name,
+                                    )
+                                    write_autocut_segments_csv(r["csv_path"], new_segments)
+                                    write_autocut_report(
+                                        r["report_path"], r["original_duration"], new_segments, r["ref_desc"],
+                                        new_params.noise_db, new_params.min_silence_len,
+                                    )
+
+                                    r["params"] = {
+                                        "noise_db": new_params.noise_db,
+                                        "min_silence_len": new_params.min_silence_len,
+                                        "max_clip_factor": new_params.max_clip_factor,
+                                        "target_duration": new_params.target_duration,
+                                    }
+                                    r["kept_duration"] = new_kept_duration
+                                    r["revision_history"].append(
+                                        {"feedback": feedback, "explanation": new_params.explanation}
+                                    )
+                                    st.session_state["tab2_results"][idx] = r
+
+                                st.success(
+                                    f"다시 편집 완료! 적용된 조정: {new_params.explanation} "
+                                    f"(총 {new_kept_duration:.1f}초, 원본 대비 "
+                                    f"{new_kept_duration / r['original_duration'] * 100:.1f}%)"
+                                )
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"다시 편집하는 중 오류가 발생했습니다: {e}")
+
             st.markdown("---")
 
         if len(results) > 1:
@@ -553,3 +675,109 @@ with tab2:
                     f"전체 결과 폴더가 {total_size_mb:.0f}MB로 커서 통합 zip 묶음은 생략했습니다 "
                     "(메모리 절약 목적). 각 영상별 개별 zip/다운로드 버튼을 이용해주세요."
                 )
+
+# ============================================================
+# TAB 3: 맞춤법 검사 (숏폼/컷편집 없이 맞춤법만 빠르게 확인하고 싶을 때)
+# ============================================================
+with tab3:
+    st.subheader("1. 영상 업로드")
+    st.caption(
+        "다른 탭과 별도로, 자막 맞춤법/문법만 빠르게 확인하고 싶을 때 쓰는 탭입니다. "
+        "숏폼 추출이나 자동 컷편집 없이 자막 확보 + 맞춤법 검사만 진행합니다. "
+        "업로드 용량 제한은 다른 탭과 동일합니다."
+    )
+    col1, col2 = st.columns(2)
+    with col1:
+        spell_video_file = st.file_uploader(
+            "맞춤법을 확인할 영상 (필수)", type=["mp4", "mov", "mkv", "avi"], key="t3_video"
+        )
+    with col2:
+        spell_srt_file = st.file_uploader(
+            "자막 SRT (선택, 없으면 자동 생성)", type=["srt"], key="t3_srt"
+        )
+
+    with st.expander("⚙️ 옵션 (기본값 그대로 써도 됩니다)"):
+        c1, c2 = st.columns(2)
+        with c1:
+            spell_whisper_model = st.selectbox(
+                "STT 모델 크기 (자막을 자동 생성할 때만 사용)",
+                ["tiny", "base", "small", "medium", "large-v3"], index=2, key="t3_model",
+            )
+            spell_language = st.text_input("자막 언어 코드", value="ko", key="t3_lang")
+        with c2:
+            spell_backend = st.selectbox(
+                "맞춤법 검사 엔진", ["auto", "naver", "claude", "offline"], index=0, key="t3_spell"
+            )
+
+    run3 = st.button("🚀 맞춤법 검사 실행", type="primary", key="t3_run")
+
+    if run3:
+        if not spell_video_file:
+            st.error("영상 파일을 먼저 올려주세요.")
+        else:
+            # 새로 실행하는 것이므로 이전 결과/에러는 지운다.
+            st.session_state.pop("tab3_result", None)
+            st.session_state.pop("tab3_error", None)
+
+            spell_video_path = save_upload(spell_video_file, subdir="t3")
+            spell_srt_path = save_upload(spell_srt_file, subdir="t3") if spell_srt_file else None
+            spell_base_name = os.path.splitext(spell_video_file.name)[0]
+            spell_out_dir = os.path.join(OUTPUT_DIR, f"{spell_base_name}_spellcheck")
+            os.makedirs(spell_out_dir, exist_ok=True)
+
+            try:
+                with st.status("자막 확보 중...", expanded=True) as status:
+                    spell_srt_out = os.path.join(spell_out_dir, f"{spell_base_name}.srt")
+                    spell_lines = ensure_subtitles(
+                        spell_video_path, spell_srt_path, spell_srt_out,
+                        model_size=spell_whisper_model, language=spell_language,
+                    )
+                    st.write(f"자막 {len(spell_lines)}줄 확보")
+
+                    status.update(label="맞춤법 검사 중...")
+                    spell_result = check_subtitles(spell_lines, backend=spell_backend)
+                    spell_report_path = os.path.join(spell_out_dir, f"{spell_base_name}_spellcheck_report.txt")
+                    write_report(spell_report_path, spell_result)
+                    status.update(label="완료!", state="complete")
+
+                st.session_state["tab3_result"] = {
+                    "base_name": spell_base_name,
+                    "srt_out": spell_srt_out,
+                    "report_path": spell_report_path,
+                    "spell_result": spell_result,
+                }
+            except Exception as e:
+                st.session_state["tab3_error"] = {"message": str(e), "traceback": traceback.format_exc()}
+
+    # ---- 결과 표시 (다른 탭들과 같은 이유로 session_state에서 읽어온다) ----
+    if st.session_state.get("tab3_error"):
+        err = st.session_state["tab3_error"]
+        st.error(f"처리 중 오류가 발생했습니다: {err['message']}")
+        with st.expander("자세한 오류 내용 보기"):
+            st.code(err["traceback"], language="text")
+
+    if st.session_state.get("tab3_result"):
+        t3r = st.session_state["tab3_result"]
+        spell_result = t3r["spell_result"]
+        st.markdown("---")
+        st.markdown(f"## 📋 결과: {t3r['base_name']}")
+        st.write(
+            f"사용 엔진: **{spell_result.backend_used}** / "
+            f"검사한 자막 줄 수: {spell_result.checked_lines} / "
+            f"발견된 이슈: **{len(spell_result.issues)}건**"
+        )
+
+        if spell_result.issues:
+            for issue in spell_result.issues:
+                with st.expander(f"[{issue.timestamp}] {issue.original}  →  {issue.suggestion}"):
+                    st.write(f"**원문**: {issue.original}")
+                    st.write(f"**제안**: {issue.suggestion}")
+                    st.write(f"**사유**: {issue.reason}")
+        else:
+            st.success("맞춤법/문법 문제가 발견되지 않았습니다.")
+
+        dc1, dc2 = st.columns(2)
+        with dc1:
+            download_button_for_file(t3r["srt_out"], "⬇ 자막 SRT", key="t3_dl_srt")
+        with dc2:
+            download_button_for_file(t3r["report_path"], "⬇ 맞춤법 검사 리포트", key="t3_dl_report")
