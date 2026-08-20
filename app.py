@@ -387,7 +387,11 @@ with tab1:
             clip_len = st.number_input("숏폼 클립 길이(초)", value=30.0, min_value=3.0, key="t1_cliplen")
             top_n = st.number_input("숏폼 개수", value=3, min_value=1, step=1, key="t1_topn")
         with c2:
-            whisper_model = st.selectbox("STT 모델 크기", ["tiny", "base", "small", "medium", "large-v3"], index=2, key="t1_model")
+            whisper_model = st.selectbox(
+                "STT 모델 크기 (클라우드 서버 메모리가 작아서 기본값을 가볍게 설정했습니다. "
+                "'small' 이상은 서버가 죽을 수 있어요)",
+                ["tiny", "base", "small", "medium", "large-v3"], index=1, key="t1_model",
+            )
             language = st.text_input("자막 언어 코드", value="ko", key="t1_lang")
         with c3:
             spellcheck_backend = st.selectbox("맞춤법 검사 엔진", ["auto", "naver", "claude", "offline"], index=0, key="t1_spell")
@@ -1079,8 +1083,8 @@ with tab3:
         c1, c2 = st.columns(2)
         with c1:
             spell_whisper_model = st.selectbox(
-                "STT 모델 크기 (자막을 자동 생성할 때만 사용)",
-                ["tiny", "base", "small", "medium", "large-v3"], index=2, key="t3_model",
+                "STT 모델 크기 (자막을 자동 생성할 때만 사용, 서버 메모리가 작아 기본값을 가볍게 설정)",
+                ["tiny", "base", "small", "medium", "large-v3"], index=1, key="t3_model",
             )
             spell_language = st.text_input("자막 언어 코드", value="ko", key="t3_lang")
         with c2:
