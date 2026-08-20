@@ -377,6 +377,26 @@ with tab1:
     col1, col2 = st.columns(2)
     with col1:
         video_file = st.file_uploader("원본 영상 (필수)", type=["mp4", "mov", "mkv", "avi"], key="t1_video")
+        youtube_url = st.text_input(
+            "또는 유튜브 링크로 대신 지정 (선택, 큰 영상은 이 방법을 추천합니다)",
+            value="", key="t1_youtube_url",
+            placeholder="https://www.youtube.com/watch?v=...",
+        )
+        st.caption(
+            "브라우저로 직접 업로드하면 영상 전체가 서버 메모리에 먼저 올라가서, "
+            "용량이 큰 영상(1GB 이상)은 서버가 죽을 수 있습니다. 유튜브 링크를 "
+            "쓰면 서버가 직접 다운로드하기 때문에 훨씬 안전합니다. 파일과 링크를 "
+            "둘 다 입력하면 업로드한 파일이 우선 사용됩니다."
+        )
+        youtube_cookies_file = st.file_uploader(
+            "유튜브 쿠키 파일 (cookies.txt, 선택)",
+            type=["txt"], key="t1_youtube_cookies",
+            help=(
+                "클라우드 서버에서는 유튜브가 접속을 차단(403 Forbidden)하는 "
+                "경우가 많습니다. 본인 유튜브 로그인 쿠키를 넣으면 우회가 될 "
+                "수도 있습니다 (100% 보장은 아닙니다)."
+            ),
+        )
     with col2:
         srt_file = st.file_uploader("자막 SRT (선택, 없으면 자동 생성)", type=["srt"], key="t1_srt")
 
@@ -402,20 +422,42 @@ with tab1:
     run1 = st.button("🔍 영상 분석하기", type="primary", key="t1_run")
 
     if run1:
-        if not video_file:
-            st.error("영상 파일을 먼저 올려주세요.")
+        if not video_file and not (youtube_url and youtube_url.strip()):
+            st.error("영상 파일을 올리거나 유튜브 링크를 입력해주세요.")
         else:
             # 새로 분석하는 것이므로 이전 분석/결과/에러는 지운다.
             for _k in ("tab1_analysis", "tab1_result", "tab1_error"):
                 st.session_state.pop(_k, None)
 
-            video_path = save_upload(video_file)
-            srt_path = save_upload(srt_file) if srt_file else None
-            base_name = os.path.splitext(video_file.name)[0]
-            out_dir = os.path.join(OUTPUT_DIR, base_name)
-            os.makedirs(out_dir, exist_ok=True)
+            # 업로드한 파일이 있으면 그걸 우선 쓰고, 없으면 유튜브 링크에서
+            # 서버가 직접 다운로드한다. 브라우저 업로드는 영상 전체를 먼저
+            # 서버 메모리에 올리기 때문에 큰 영상(1GB+)에서는 서버가 죽을 수
+            # 있어서, 유튜브 링크 방식을 쓰면 이 문제를 피할 수 있다.
+            video_path = None
+            base_name = None
+            if video_file:
+                video_path = save_upload(video_file)
+                base_name = os.path.splitext(video_file.name)[0]
+            else:
+                with st.status("유튜브 영상 다운로드 중...", expanded=True) as dl_status:
+                    yt_cookies_path = save_upload(youtube_cookies_file) if youtube_cookies_file else None
+                    try:
+                        video_path = download_youtube_video(
+                            youtube_url.strip(), UPLOAD_DIR, cookies_path=yt_cookies_path,
+                            max_duration_sec=4 * 3600, max_height=1080,
+                        )
+                        base_name = os.path.splitext(os.path.basename(video_path))[0]
+                        dl_status.update(label="유튜브 영상 다운로드 완료!", state="complete")
+                    except Exception as e:
+                        dl_status.update(label="유튜브 영상 다운로드 실패", state="error")
+                        st.error(f"유튜브 영상을 다운로드하지 못했습니다: {e}")
 
-            try:
+            if video_path:
+              srt_path = save_upload(srt_file) if srt_file else None
+              out_dir = os.path.join(OUTPUT_DIR, base_name)
+              os.makedirs(out_dir, exist_ok=True)
+
+              try:
                 with st.status("자막 확보 중...", expanded=True) as status:
                     srt_out = os.path.join(out_dir, f"{base_name}.srt")
                     lines = ensure_subtitles(video_path, srt_path, srt_out, model_size=whisper_model, language=language)
@@ -467,7 +509,7 @@ with tab1:
                     "fps": fps,
                 }
 
-            except Exception as e:
+              except Exception as e:
                 st.session_state["tab1_error"] = {"message": str(e), "traceback": traceback.format_exc()}
 
     # ---- 결과 표시 (버튼 클릭으로 인한 rerun에도 사라지지 않도록,
