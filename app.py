@@ -167,6 +167,57 @@ st.markdown(
         background: var(--brand-card);
         border-right: 1px solid var(--brand-border);
     }
+
+    /* ---- 스텝 헤더 (섹션 번호 배지) ---- */
+    .step-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 4px 0 6px 0;
+    }
+    .step-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-2) 100%);
+        color: #fff;
+        font-size: 13px;
+        font-weight: 700;
+        flex-shrink: 0;
+    }
+    .step-title { font-size: 17px; font-weight: 700; color: #1F2333; }
+    .step-desc { font-size: 13px; color: var(--brand-muted); margin: 0 0 14px 36px; }
+
+    /* ---- 결과 섹션 타이틀 ---- */
+    .result-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 20px;
+        font-weight: 800;
+        margin: 8px 0 14px 0;
+        color: #1F2333;
+    }
+
+    /* ---- 지표(metric) 카드 ---- */
+    div[data-testid="stMetric"] {
+        background: var(--brand-card);
+        border: 1px solid var(--brand-border);
+        border-radius: 14px;
+        padding: 12px 16px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+
+    /* ---- 테두리 있는 컨테이너(st.container(border=True))를 카드로 ---- */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        border-radius: 16px !important;
+        border: 1px solid var(--brand-border) !important;
+        background: var(--brand-card);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -264,6 +315,26 @@ def download_button_for_file(path: str, label: str = None, key: str = None):
     )
 
 
+def section_header(num, title, desc=None):
+    """숫자 배지가 붙은 섹션 제목을 그린다 (예: ① 영상 업로드)."""
+    desc_html = f'<p class="step-desc">{desc}</p>' if desc else ""
+    st.markdown(
+        f"""
+        <div class="step-header">
+            <span class="step-badge">{num}</span>
+            <span class="step-title">{title}</span>
+        </div>
+        {desc_html}
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def result_title(text):
+    """결과 섹션 제목을 카드 타이틀 스타일로 그린다."""
+    st.markdown(f'<div class="result-title">{text}</div>', unsafe_allow_html=True)
+
+
 st.markdown(
     """
     <div class="hero-header">
@@ -295,8 +366,8 @@ with st.sidebar:
     )
 
 tab1, tab2, tab3 = st.tabs([
-    "📹 숏폼 만들기 (main.py 기능)",
-    "✂️ 자동 컷편집 (autocut.py 기능)",
+    "📹 숏폼 만들기",
+    "✂️ 자동 컷편집",
     "📝 맞춤법 검사",
 ])
 
@@ -304,14 +375,15 @@ tab1, tab2, tab3 = st.tabs([
 # TAB 1: 숏폼 만들기
 # ============================================================
 with tab1:
-    st.subheader("1. 영상 업로드")
+    section_header(1, "영상 업로드")
     col1, col2 = st.columns(2)
     with col1:
         video_file = st.file_uploader("원본 영상 (필수)", type=["mp4", "mov", "mkv", "avi"], key="t1_video")
     with col2:
         srt_file = st.file_uploader("자막 SRT (선택, 없으면 자동 생성)", type=["srt"], key="t1_srt")
 
-    with st.expander("⚙️ 옵션 (기본값 그대로 써도 됩니다)"):
+    section_header(2, "옵션 설정", "기본값 그대로 써도 됩니다")
+    with st.expander("⚙️ 옵션 펼치기"):
         c1, c2, c3 = st.columns(3)
         with c1:
             clip_len = st.number_input("숏폼 클립 길이(초)", value=30.0, min_value=3.0, key="t1_cliplen")
@@ -324,6 +396,7 @@ with tab1:
             fps = st.number_input("마커용 fps (프리미어 시퀀스와 맞추세요)", value=30.0, key="t1_fps")
         skip_vertical = st.checkbox("전체 영상 9:16 변환 생략 (시간 절약)", value=True, key="t1_skipvert")
 
+    section_header(3, "실행")
     run1 = st.button("🚀 실행", type="primary", key="t1_run")
 
     if run1:
@@ -392,6 +465,7 @@ with tab1:
                     "vertical_path": vertical_path,
                     "csv_path": csv_path,
                     "txt_path": txt_path,
+                    "issues_count": len(spell_result.issues),
                 }
 
             except Exception as e:
@@ -411,42 +485,56 @@ with tab1:
 
         st.success("처리 완료! 아래에서 결과를 확인/다운로드하세요.")
 
-        st.markdown("#### 결과")
+        result_title("📋 결과")
+        intro_result = r["intro_result"]
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("숏폼 클립", f"{len(r['clip_infos'])}개")
+        m2.metric("맞춤법 이슈", f"{r.get('issues_count', 0)}건")
+        m3.metric("인트로", "있음 ✅" if intro_result.has_probable_intro else "없음 ⚠️")
+        m4.metric("9:16 변환", "완료" if r["vertical_path"] else "생략")
+
         r1, r2, r3 = st.columns(3)
         with r1:
-            st.markdown("**자막 / 맞춤법**")
-            download_button_for_file(r["srt_out"], "⬇ 자막 SRT", key="t1_srt_out")
-            download_button_for_file(r["report_path"], "⬇ 맞춤법 리포트", key="t1_report")
+            with st.container(border=True):
+                st.markdown("**자막 / 맞춤법**")
+                download_button_for_file(r["srt_out"], "⬇ 자막 SRT", key="t1_srt_out")
+                download_button_for_file(r["report_path"], "⬇ 맞춤법 리포트", key="t1_report")
         with r2:
-            st.markdown("**인트로 판단**")
-            intro_result = r["intro_result"]
-            st.write(intro_result.reason)
-            if not intro_result.has_probable_intro:
-                st.info(intro_result.suggestion)
+            with st.container(border=True):
+                st.markdown("**인트로 판단**")
+                if intro_result.has_probable_intro:
+                    st.success("인트로 있음")
+                else:
+                    st.warning("인트로 없음")
+                st.caption(intro_result.reason)
+                if not intro_result.has_probable_intro:
+                    st.info(intro_result.suggestion)
         with r3:
-            st.markdown("**프리미어 마커**")
-            download_button_for_file(r["csv_path"], "⬇ 마커 CSV (Import Markers용)", key="t1_csv")
-            download_button_for_file(r["txt_path"], "⬇ 마커 읽기용 텍스트", key="t1_txt")
+            with st.container(border=True):
+                st.markdown("**프리미어 마커**")
+                download_button_for_file(r["csv_path"], "⬇ 마커 CSV (Import Markers용)", key="t1_csv")
+                download_button_for_file(r["txt_path"], "⬇ 마커 읽기용 텍스트", key="t1_txt")
 
         if r["clip_infos"]:
-            st.markdown("#### 숏폼 클립 미리보기")
+            st.markdown("#### 🎞️ 숏폼 클립 미리보기")
             for idx, c in enumerate(r["clip_infos"]):
-                cc1, cc2 = st.columns([2, 1])
-                clip_path = os.path.join(r["shorts_dir"], c["file"])
-                srt_clip_path = os.path.join(r["shorts_dir"], c["srt"])
-                with cc1:
-                    st.video(clip_path)
-                    st.caption(f"{c['start']:.1f}s ~ {c['end']:.1f}s / 점수 {c['score']:.1f} / {c['preview']}")
-                with cc2:
-                    download_button_for_file(clip_path, "⬇ 영상 다운로드", key=f"t1_clip_{idx}_video")
-                    download_button_for_file(srt_clip_path, "⬇ 이 클립 자막 SRT", key=f"t1_clip_{idx}_srt")
+                with st.container(border=True):
+                    cc1, cc2 = st.columns([2, 1])
+                    clip_path = os.path.join(r["shorts_dir"], c["file"])
+                    srt_clip_path = os.path.join(r["shorts_dir"], c["srt"])
+                    with cc1:
+                        st.video(clip_path)
+                        st.caption(f"{c['start']:.1f}s ~ {c['end']:.1f}s · 점수 {c['score']:.1f} · {c['preview']}")
+                    with cc2:
+                        download_button_for_file(clip_path, "⬇ 영상 다운로드", key=f"t1_clip_{idx}_video")
+                        download_button_for_file(srt_clip_path, "⬇ 이 클립 자막 SRT", key=f"t1_clip_{idx}_srt")
 
         if r["vertical_path"]:
-            st.markdown("#### 9:16 전체 변환본")
+            st.markdown("#### 📱 9:16 전체 변환본")
             st.video(r["vertical_path"])
             download_button_for_file(r["vertical_path"], "⬇ 세로 영상 다운로드", key="t1_vertical")
 
-        st.markdown("---")
+        st.markdown("")
         out_size_mb = folder_size_mb(r["out_dir"])
         if out_size_mb <= ZIP_AUTO_MAX_MB:
             st.download_button(
@@ -464,7 +552,7 @@ with tab1:
 # TAB 2: 자동 컷편집
 # ============================================================
 with tab2:
-    st.subheader("1. 영상 업로드")
+    section_header(1, "영상 업로드")
     col1, col2, col3 = st.columns(3)
     with col1:
         raw_video_files = st.file_uploader(
@@ -502,7 +590,8 @@ with tab2:
         raw_srt_file = st.file_uploader("원본 영상 자막 SRT (선택)", type=["srt"], key="t2_srt")
         st.caption("원본 영상을 1개만 올렸을 때만 적용됩니다 (여러 개일 땐 무시됩니다).")
 
-    with st.expander("⚙️ 옵션 (기본값 그대로 써도 됩니다)"):
+    section_header(2, "옵션 설정", "기본값 그대로 써도 됩니다")
+    with st.expander("⚙️ 옵션 펼치기"):
         c1, c2, c3 = st.columns(3)
         with c1:
             noise_db = st.number_input("무음 판정 데시벨 기준 (작을수록 민감)", value=-35.0, key="t2_noisedb")
@@ -526,6 +615,7 @@ with tab2:
         with c3:
             fps2 = st.number_input("EDL용 fps (프리미어 시퀀스와 맞추세요)", value=30.0, key="t2_fps")
 
+    section_header(3, "실행")
     run2 = st.button("🚀 실행", type="primary", key="t2_run")
 
     if run2:
@@ -654,6 +744,7 @@ with tab2:
                         "fps2": fps2,
                         "original_duration": original_duration,
                         "kept_duration": kept_duration,
+                        "segments_count": len(segments),
                         "params": {
                             "noise_db": noise_db,
                             "min_silence_len": min_silence_len,
@@ -684,127 +775,139 @@ with tab2:
 
     if st.session_state.get("tab2_results"):
         results = st.session_state["tab2_results"]
-        st.markdown("---")
-        st.markdown(f"## 📋 결과 ({len(results)}개 영상)")
+        st.markdown("")
+        result_title(f"📋 결과 ({len(results)}개 영상)")
 
         for idx, r in enumerate(results):
             base_name = r["base_name"]
-            st.markdown(f"### 🎬 {base_name}")
-            st.video(r["autocut_mp4"])
-            st.caption(
-                "**프리미어로 원본 화질 그대로 가져오려면** ⬇ 프리미어 XML을 다운받아서 "
-                "프리미어에서 File > Import로 불러오세요. 원본 영상 파일의 경로를 그대로 "
-                "담고 있어서, 같은 컴퓨터에 원본이 있으면 보통 자동으로 연결됩니다 "
-                "(재인코딩 없이 원본 화질 그대로 컷 편집 시퀀스가 만들어져요). "
-                "XML이 안 열리면 EDL을 대신 시도해보세요 (이건 클립 이름 매칭 방식이라 "
-                "가끔 수동으로 미디어를 다시 연결해줘야 할 수 있어요)."
-            )
-            dc1, dc2, dc3, dc4 = st.columns(4)
-            with dc1:
-                download_button_for_file(r["autocut_mp4"], "⬇ 완성 영상 mp4", key=f"t2_{idx}_mp4")
-            with dc2:
-                download_button_for_file(r["xml_path"], "⬇ 프리미어 XML (권장)", key=f"t2_{idx}_xml")
-            with dc3:
-                download_button_for_file(r["edl_path"], "⬇ 프리미어 EDL (대안)", key=f"t2_{idx}_edl")
-            with dc4:
-                download_button_for_file(r["csv_path"], "⬇ 구간 목록 CSV", key=f"t2_{idx}_csv")
-            download_button_for_file(r["report_path"], "⬇ 요약 리포트", key=f"t2_{idx}_report")
-
-            r_out_size_mb = folder_size_mb(r["out_dir"])
-            if r_out_size_mb <= ZIP_AUTO_MAX_MB:
-                st.download_button(
-                    "📦 이 영상 결과 zip으로 한번에 다운로드",
-                    data=lambda d=r["out_dir"]: zip_folder(d),
-                    file_name=f"{base_name}_autocut_결과.zip", key=f"t2_{idx}_zip",
+            with st.container(border=True):
+                st.markdown(f"### 🎬 {base_name}")
+                mc1, mc2, mc3 = st.columns(3)
+                mc1.metric("최종 길이", f"{r['kept_duration']:.1f}초")
+                mc2.metric(
+                    "원본 대비",
+                    f"{r['kept_duration'] / r['original_duration'] * 100:.1f}%",
+                    delta=f"원본 {r['original_duration']:.1f}초",
+                    delta_color="off",
                 )
-            else:
-                st.info(
-                    f"결과 폴더가 {r_out_size_mb:.0f}MB로 커서 zip 묶음은 생략했습니다 "
-                    "(메모리 절약 목적). 위의 개별 다운로드 버튼을 이용해주세요."
+                mc3.metric("유지된 컷 구간", f"{r.get('segments_count', '-')}개")
+
+                st.video(r["autocut_mp4"])
+                st.caption(
+                    "**프리미어로 원본 화질 그대로 가져오려면** ⬇ 프리미어 XML을 다운받아서 "
+                    "프리미어에서 File > Import로 불러오세요. 원본 영상 파일의 경로를 그대로 "
+                    "담고 있어서, 같은 컴퓨터에 원본이 있으면 보통 자동으로 연결됩니다 "
+                    "(재인코딩 없이 원본 화질 그대로 컷 편집 시퀀스가 만들어져요). "
+                    "XML이 안 열리면 EDL을 대신 시도해보세요 (이건 클립 이름 매칭 방식이라 "
+                    "가끔 수동으로 미디어를 다시 연결해줘야 할 수 있어요)."
                 )
+                dc1, dc2, dc3, dc4 = st.columns(4)
+                with dc1:
+                    download_button_for_file(r["autocut_mp4"], "⬇ 완성 영상 mp4", key=f"t2_{idx}_mp4")
+                with dc2:
+                    download_button_for_file(r["xml_path"], "⬇ 프리미어 XML (권장)", key=f"t2_{idx}_xml")
+                with dc3:
+                    download_button_for_file(r["edl_path"], "⬇ 프리미어 EDL (대안)", key=f"t2_{idx}_edl")
+                with dc4:
+                    download_button_for_file(r["csv_path"], "⬇ 구간 목록 CSV", key=f"t2_{idx}_csv")
+                download_button_for_file(r["report_path"], "⬇ 요약 리포트", key=f"t2_{idx}_report")
 
-            # ---- 수정 요청하기: 자유 텍스트로 피드백을 적으면 파라미터를
-            #      자동으로 조정해서 이 영상만 다시 편집한다. ----
-            if r.get("raw_video_path"):
-                with st.expander("🔧 수정 요청하기 (예: '7분으로 줄여줘', '너무 안 이어지는 것 같다')"):
-                    if r.get("revision_history"):
-                        st.caption("지금까지의 수정 요청 내역:")
-                        for h in r["revision_history"]:
-                            st.write(f"- \"{h['feedback']}\" → {h['explanation']}")
-                        st.markdown("&nbsp;", unsafe_allow_html=True)
-
-                    feedback = st.text_area(
-                        "수정하고 싶은 점을 자유롭게 적어주세요",
-                        key=f"t2_{idx}_feedback",
-                        placeholder="예: 분수가 마음에 안든다, 7분으로 줄여줘 / 너무 안 이어지는 것 같다 / 컷이 너무 빨라요",
+                r_out_size_mb = folder_size_mb(r["out_dir"])
+                if r_out_size_mb <= ZIP_AUTO_MAX_MB:
+                    st.download_button(
+                        "📦 이 영상 결과 zip으로 한번에 다운로드",
+                        data=lambda d=r["out_dir"]: zip_folder(d),
+                        file_name=f"{base_name}_autocut_결과.zip", key=f"t2_{idx}_zip",
                     )
-                    st.caption(
-                        "입력한 내용을 해석해서 무음 판정 기준, 컷 리듬, 목표 길이 같은 "
-                        "파라미터를 자동으로 조정한 뒤 이 영상만 다시 편집합니다. "
-                        "(ANTHROPIC_API_KEY가 설정돼 있으면 AI가 문맥까지 이해해서 조정하고, "
-                        "없으면 자주 쓰는 표현을 규칙 기반으로 해석합니다.)"
+                else:
+                    st.info(
+                        f"결과 폴더가 {r_out_size_mb:.0f}MB로 커서 zip 묶음은 생략했습니다 "
+                        "(메모리 절약 목적). 위의 개별 다운로드 버튼을 이용해주세요."
                     )
-                    if st.button("🔄 이 요청대로 다시 편집", key=f"t2_{idx}_revise_btn"):
-                        if not feedback.strip():
-                            st.warning("수정하고 싶은 내용을 먼저 입력해주세요.")
-                        else:
-                            try:
-                                with st.spinner("요청을 해석하고 다시 편집하는 중..."):
-                                    new_params = interpret_revision(
-                                        feedback, r["params"],
-                                        original_duration=r["original_duration"],
-                                        kept_duration=r["kept_duration"],
-                                    )
 
-                                    new_segments = build_segments(
-                                        r["raw_video_path"], subtitle_lines=r["subtitle_lines"],
-                                        noise_db=new_params.noise_db, min_silence_len=new_params.min_silence_len,
-                                        reference_style=r["reference_style"], max_clip_factor=new_params.max_clip_factor,
-                                    )
-                                    new_segments = apply_target_duration(new_segments, new_params.target_duration)
-                                    if not new_segments:
-                                        raise ValueError(
-                                            "남는 구간이 없습니다. 요청 내용을 조금 다르게 바꿔서 다시 시도해주세요."
+                # ---- 수정 요청하기: 자유 텍스트로 피드백을 적으면 파라미터를
+                #      자동으로 조정해서 이 영상만 다시 편집한다. ----
+                if r.get("raw_video_path"):
+                    with st.expander("🔧 수정 요청하기 (예: '7분으로 줄여줘', '너무 안 이어지는 것 같다')"):
+                        if r.get("revision_history"):
+                            st.caption("지금까지의 수정 요청 내역:")
+                            for h in r["revision_history"]:
+                                st.write(f"- \"{h['feedback']}\" → {h['explanation']}")
+                            st.markdown("&nbsp;", unsafe_allow_html=True)
+
+                        feedback = st.text_area(
+                            "수정하고 싶은 점을 자유롭게 적어주세요",
+                            key=f"t2_{idx}_feedback",
+                            placeholder="예: 분수가 마음에 안든다, 7분으로 줄여줘 / 너무 안 이어지는 것 같다 / 컷이 너무 빨라요",
+                        )
+                        st.caption(
+                            "입력한 내용을 해석해서 무음 판정 기준, 컷 리듬, 목표 길이 같은 "
+                            "파라미터를 자동으로 조정한 뒤 이 영상만 다시 편집합니다. "
+                            "(ANTHROPIC_API_KEY가 설정돼 있으면 AI가 문맥까지 이해해서 조정하고, "
+                            "없으면 자주 쓰는 표현을 규칙 기반으로 해석합니다.)"
+                        )
+                        if st.button("🔄 이 요청대로 다시 편집", key=f"t2_{idx}_revise_btn"):
+                            if not feedback.strip():
+                                st.warning("수정하고 싶은 내용을 먼저 입력해주세요.")
+                            else:
+                                try:
+                                    with st.spinner("요청을 해석하고 다시 편집하는 중..."):
+                                        new_params = interpret_revision(
+                                            feedback, r["params"],
+                                            original_duration=r["original_duration"],
+                                            kept_duration=r["kept_duration"],
                                         )
-                                    new_kept_duration = sum(s.duration for s in new_segments)
 
-                                    render_autocut(r["raw_video_path"], new_segments, r["autocut_mp4"])
-                                    write_autocut_edl(
-                                        r["edl_path"], new_segments,
-                                        source_reel_name=os.path.abspath(r["raw_video_path"]), fps=r["fps2"],
-                                    )
-                                    write_autocut_premiere_xml(
-                                        r["xml_path"], new_segments, r["raw_video_path"],
-                                        fps=r["fps2"], title=base_name,
-                                    )
-                                    write_autocut_segments_csv(r["csv_path"], new_segments)
-                                    write_autocut_report(
-                                        r["report_path"], r["original_duration"], new_segments, r["ref_desc"],
-                                        new_params.noise_db, new_params.min_silence_len,
-                                    )
+                                        new_segments = build_segments(
+                                            r["raw_video_path"], subtitle_lines=r["subtitle_lines"],
+                                            noise_db=new_params.noise_db, min_silence_len=new_params.min_silence_len,
+                                            reference_style=r["reference_style"], max_clip_factor=new_params.max_clip_factor,
+                                        )
+                                        new_segments = apply_target_duration(new_segments, new_params.target_duration)
+                                        if not new_segments:
+                                            raise ValueError(
+                                                "남는 구간이 없습니다. 요청 내용을 조금 다르게 바꿔서 다시 시도해주세요."
+                                            )
+                                        new_kept_duration = sum(s.duration for s in new_segments)
 
-                                    r["params"] = {
-                                        "noise_db": new_params.noise_db,
-                                        "min_silence_len": new_params.min_silence_len,
-                                        "max_clip_factor": new_params.max_clip_factor,
-                                        "target_duration": new_params.target_duration,
-                                    }
-                                    r["kept_duration"] = new_kept_duration
-                                    r["revision_history"].append(
-                                        {"feedback": feedback, "explanation": new_params.explanation}
+                                        render_autocut(r["raw_video_path"], new_segments, r["autocut_mp4"])
+                                        write_autocut_edl(
+                                            r["edl_path"], new_segments,
+                                            source_reel_name=os.path.abspath(r["raw_video_path"]), fps=r["fps2"],
+                                        )
+                                        write_autocut_premiere_xml(
+                                            r["xml_path"], new_segments, r["raw_video_path"],
+                                            fps=r["fps2"], title=base_name,
+                                        )
+                                        write_autocut_segments_csv(r["csv_path"], new_segments)
+                                        write_autocut_report(
+                                            r["report_path"], r["original_duration"], new_segments, r["ref_desc"],
+                                            new_params.noise_db, new_params.min_silence_len,
+                                        )
+
+                                        r["params"] = {
+                                            "noise_db": new_params.noise_db,
+                                            "min_silence_len": new_params.min_silence_len,
+                                            "max_clip_factor": new_params.max_clip_factor,
+                                            "target_duration": new_params.target_duration,
+                                        }
+                                        r["kept_duration"] = new_kept_duration
+                                        r["segments_count"] = len(new_segments)
+                                        r["revision_history"].append(
+                                            {"feedback": feedback, "explanation": new_params.explanation}
+                                        )
+                                        st.session_state["tab2_results"][idx] = r
+
+                                    st.success(
+                                        f"다시 편집 완료! 적용된 조정: {new_params.explanation} "
+                                        f"(총 {new_kept_duration:.1f}초, 원본 대비 "
+                                        f"{new_kept_duration / r['original_duration'] * 100:.1f}%)"
                                     )
-                                    st.session_state["tab2_results"][idx] = r
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"다시 편집하는 중 오류가 발생했습니다: {e}")
 
-                                st.success(
-                                    f"다시 편집 완료! 적용된 조정: {new_params.explanation} "
-                                    f"(총 {new_kept_duration:.1f}초, 원본 대비 "
-                                    f"{new_kept_duration / r['original_duration'] * 100:.1f}%)"
-                                )
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"다시 편집하는 중 오류가 발생했습니다: {e}")
-
-            st.markdown("---")
+            st.markdown("")
 
         if len(results) > 1:
             all_out_dirs = [r["out_dir"] for r in results]
@@ -825,11 +928,10 @@ with tab2:
 # TAB 3: 맞춤법 검사 (숏폼/컷편집 없이 맞춤법만 빠르게 확인하고 싶을 때)
 # ============================================================
 with tab3:
-    st.subheader("1. 영상 업로드")
-    st.caption(
-        "다른 탭과 별도로, 자막 맞춤법/문법만 빠르게 확인하고 싶을 때 쓰는 탭입니다. "
-        "숏폼 추출이나 자동 컷편집 없이 자막 확보 + 맞춤법 검사만 진행합니다. "
-        "업로드 용량 제한은 다른 탭과 동일합니다."
+    section_header(
+        1, "영상 업로드",
+        "숏폼 추출이나 자동 컷편집 없이, 자막 확보 + 맞춤법 검사만 빠르게 진행합니다. "
+        "업로드 용량 제한은 다른 탭과 동일합니다.",
     )
     col1, col2 = st.columns(2)
     with col1:
@@ -841,7 +943,8 @@ with tab3:
             "자막 SRT (선택, 없으면 자동 생성)", type=["srt"], key="t3_srt"
         )
 
-    with st.expander("⚙️ 옵션 (기본값 그대로 써도 됩니다)"):
+    section_header(2, "옵션 설정", "기본값 그대로 써도 됩니다")
+    with st.expander("⚙️ 옵션 펼치기"):
         c1, c2 = st.columns(2)
         with c1:
             spell_whisper_model = st.selectbox(
@@ -854,6 +957,7 @@ with tab3:
                 "맞춤법 검사 엔진", ["auto", "naver", "claude", "offline"], index=0, key="t3_spell"
             )
 
+    section_header(3, "실행")
     run3 = st.button("🚀 맞춤법 검사 실행", type="primary", key="t3_run")
 
     if run3:
@@ -904,25 +1008,28 @@ with tab3:
     if st.session_state.get("tab3_result"):
         t3r = st.session_state["tab3_result"]
         spell_result = t3r["spell_result"]
-        st.markdown("---")
-        st.markdown(f"## 📋 결과: {t3r['base_name']}")
-        st.write(
-            f"사용 엔진: **{spell_result.backend_used}** / "
-            f"검사한 자막 줄 수: {spell_result.checked_lines} / "
-            f"발견된 이슈: **{len(spell_result.issues)}건**"
-        )
+        st.markdown("")
+        result_title(f"📋 결과: {t3r['base_name']}")
+
+        sm1, sm2, sm3 = st.columns(3)
+        sm1.metric("사용 엔진", spell_result.backend_used)
+        sm2.metric("검사한 자막 줄 수", f"{spell_result.checked_lines}줄")
+        sm3.metric("발견된 이슈", f"{len(spell_result.issues)}건")
 
         if spell_result.issues:
-            for issue in spell_result.issues:
+            st.markdown("#### ✏️ 이슈 목록")
+            for i, issue in enumerate(spell_result.issues):
                 with st.expander(f"[{issue.timestamp}] {issue.original}  →  {issue.suggestion}"):
                     st.write(f"**원문**: {issue.original}")
                     st.write(f"**제안**: {issue.suggestion}")
                     st.write(f"**사유**: {issue.reason}")
         else:
-            st.success("맞춤법/문법 문제가 발견되지 않았습니다.")
+            st.success("✅ 맞춤법/문법 문제가 발견되지 않았습니다.")
 
-        dc1, dc2 = st.columns(2)
-        with dc1:
-            download_button_for_file(t3r["srt_out"], "⬇ 자막 SRT", key="t3_dl_srt")
-        with dc2:
-            download_button_for_file(t3r["report_path"], "⬇ 맞춤법 검사 리포트", key="t3_dl_report")
+        with st.container(border=True):
+            st.markdown("**다운로드**")
+            dc1, dc2 = st.columns(2)
+            with dc1:
+                download_button_for_file(t3r["srt_out"], "⬇ 자막 SRT", key="t3_dl_srt")
+            with dc2:
+                download_button_for_file(t3r["report_path"], "⬇ 맞춤법 검사 리포트", key="t3_dl_report")
