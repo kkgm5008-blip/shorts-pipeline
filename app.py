@@ -356,6 +356,19 @@ with tab2:
         )
         st.caption("파일과 링크를 둘 다 입력하면 업로드한 파일이 우선 사용됩니다. "
                    "레퍼런스는 원본 영상이 여러 개여도 1개만 지정하며, 모든 원본 영상에 동일하게 적용됩니다.")
+        yt_cookies_file = st.file_uploader(
+            "유튜브 쿠키 파일 (cookies.txt, 선택)",
+            type=["txt"],
+            key="t2_yt_cookies",
+            help=(
+                "클라우드 서버에서는 유튜브가 접속을 차단(403 Forbidden)하는 "
+                "경우가 많습니다. 본인 유튜브 로그인 쿠키를 넣으면 우회가 "
+                "될 수도 있습니다 (100% 보장은 아닙니다). 크롬/엣지 확장 프로그램 "
+                "'Get cookies.txt LOCALLY' 등으로 유튜브 로그인 상태에서 "
+                "cookies.txt를 추출해 올려주세요. 본인 계정 인증 정보이니 "
+                "타인과 공유하지 마세요."
+            ),
+        )
     with col3:
         raw_srt_file = st.file_uploader("원본 영상 자막 SRT (선택)", type=["srt"], key="t2_srt")
         st.caption("원본 영상을 1개만 올렸을 때만 적용됩니다 (여러 개일 땐 무시됩니다).")
@@ -408,8 +421,11 @@ with tab2:
                     ref_video_path = save_upload(ref_video_file)
                 elif ref_youtube_url and ref_youtube_url.strip():
                     ref_status.update(label="유튜브 레퍼런스 영상 다운로드 중...")
+                    yt_cookies_path = save_upload(yt_cookies_file) if yt_cookies_file else None
                     try:
-                        ref_video_path = download_youtube_video(ref_youtube_url.strip(), UPLOAD_DIR)
+                        ref_video_path = download_youtube_video(
+                            ref_youtube_url.strip(), UPLOAD_DIR, cookies_path=yt_cookies_path
+                        )
                         st.write(f"유튜브 영상 다운로드 완료: {os.path.basename(ref_video_path)}")
                     except Exception as e:
                         st.warning(f"유튜브 영상을 다운로드하지 못해 레퍼런스 없이 진행합니다: {e}")
