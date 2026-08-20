@@ -2,6 +2,13 @@
 유튜브 링크로부터 레퍼런스 영상을 다운로드하는 모듈.
 서버(로컬 PC 또는 Streamlit Cloud)가 유튜브에 접속 가능한 환경에서만
 동작한다 (유튜브 접속이 막힌 네트워크에서는 실패한다).
+
+주의: Streamlit Cloud 같은 클라우드 호스팅은 데이터센터 IP를 쓰기 때문에,
+유튜브가 이를 "봇"으로 간주해서 HTTP 403(Forbidden)으로 다운로드 자체를
+막는 경우가 흔하다. 이럴 때는 cookies_path에 본인 유튜브 로그인 쿠키
+파일(cookies.txt, Netscape 형식)을 넘겨주면, 로그인된 사용자의 요청처럼
+보이게 되어 우회에 성공하는 경우가 있다 (단, 100% 보장되지는 않는다 -
+유튜브가 봇 탐지를 계속 강화하고 있어서 쿠키를 넣어도 막힐 수 있다).
 """
 import os
 
@@ -13,9 +20,13 @@ import os
 REFERENCE_MAX_DURATION_SEC = 20 * 60  # 20분
 
 
-def download_youtube_video(url: str, output_dir: str) -> str:
+def download_youtube_video(url: str, output_dir: str, cookies_path: str = None) -> str:
     """유튜브 URL의 영상을 다운로드해서 output_dir 안에 mp4로 저장하고,
-    저장된 파일의 경로를 반환한다. 실패하면 RuntimeError를 던진다."""
+    저장된 파일의 경로를 반환한다. 실패하면 RuntimeError를 던진다.
+
+    cookies_path: (선택) 유튜브 로그인 쿠키가 담긴 cookies.txt(Netscape 형식)
+    경로. 클라우드 서버 IP가 봇으로 차단(403)당할 때 우회를 시도하는 용도.
+    """
     try:
         import yt_dlp
     except ImportError as e:
@@ -46,14 +57,25 @@ def download_youtube_video(url: str, output_dir: str) -> str:
         "quiet": True,
         "no_warnings": True,
         "match_filter": _reject_too_long,
+        # 유튜브가 클라우드 서버를 실제 브라우저처럼 보이게 하기 위한 값.
+        # (봇 탐지 우회에 도움이 될 수 있으나 완전한 해결책은 아니다.)
+        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
     }
+    if cookies_path and os.path.exists(cookies_path):
+        ydl_opts["cookiefile"] = cookies_path
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filepath = ydl.prepare_filename(info)
     except Exception as e:
-        raise RuntimeError(f"유튜브 영상 다운로드에 실패했습니다: {e}") from e
+        hint = ""
+        if "403" in str(e) and not cookies_path:
+            hint = (
+                " (유튜브가 서버 접속을 차단한 것으로 보입니다 - 쿠키 파일을 "
+                "함께 넣으면 우회가 될 수도 있습니다.)"
+            )
+        raise RuntimeError(f"유튜브 영상 다운로드에 실패했습니다: {e}{hint}") from e
 
     base, _ext = os.path.splitext(filepath)
     mp4_path = base + ".mp4"
