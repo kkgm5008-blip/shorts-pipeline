@@ -69,6 +69,109 @@ def _check_password() -> bool:
 
 st.set_page_config(page_title="숏폼 자동화 도구", page_icon="🎬", layout="wide")
 
+# ---- 디자인: 폰트/색상/카드·탭·버튼 스타일을 커스텀 CSS로 다듬는다.
+# (Streamlit 기본 위젯 구조는 그대로 두고 스타일만 입히는 방식이라, 나중에
+#  Streamlit 내부 클래스명이 바뀌어도 레이아웃 자체가 깨지지는 않는다.)
+st.markdown(
+    """
+    <style>
+    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');
+
+    :root {
+        --brand-primary: #6C5CE7;
+        --brand-primary-2: #8B7CF6;
+        --brand-bg: #FAFAFC;
+        --brand-card: #FFFFFF;
+        --brand-border: #E5E7EB;
+        --brand-muted: #6B7280;
+    }
+
+    html, body, [class*="css"] {
+        font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    }
+
+    .stApp { background: var(--brand-bg); }
+
+    /* ---- 상단 히어로 배너 ---- */
+    .hero-header {
+        background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-2) 100%);
+        border-radius: 20px;
+        padding: 34px 40px;
+        margin-bottom: 26px;
+        color: #fff;
+        box-shadow: 0 10px 28px rgba(108, 92, 231, 0.28);
+    }
+    .hero-header h1 { font-size: 26px; font-weight: 800; margin: 0 0 8px 0; color: #fff; }
+    .hero-header p { font-size: 14.5px; opacity: 0.92; margin: 0; line-height: 1.7; }
+
+    /* ---- 탭: 알약(pill) 스타일 세그먼트 컨트롤처럼 ---- */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 6px;
+        background: var(--brand-card);
+        padding: 6px;
+        border-radius: 14px;
+        border: 1px solid var(--brand-border);
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 46px;
+        border-radius: 10px;
+        padding: 0 22px;
+        font-weight: 600;
+        color: var(--brand-muted);
+        background: transparent;
+    }
+    .stTabs [aria-selected="true"] {
+        background: var(--brand-primary) !important;
+        color: #fff !important;
+    }
+
+    /* ---- 카드형 컨테이너 (옵션 expander, 결과 status 등) ---- */
+    div[data-testid="stExpander"] {
+        border: 1px solid var(--brand-border);
+        border-radius: 14px;
+        background: var(--brand-card);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    div[data-testid="stExpander"] summary { font-weight: 600; }
+
+    /* ---- 버튼 ---- */
+    div.stButton > button {
+        border-radius: 10px;
+        font-weight: 600;
+        padding: 0.55rem 1.4rem;
+        border: 1px solid var(--brand-border);
+        transition: all 0.15s ease;
+    }
+    div.stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-2) 100%);
+        border: none;
+        box-shadow: 0 4px 12px rgba(108, 92, 231, 0.3);
+    }
+    div.stButton > button[kind="primary"]:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 16px rgba(108, 92, 231, 0.4);
+    }
+
+    /* ---- 업로드 영역 ---- */
+    [data-testid="stFileUploaderDropzone"] {
+        border-radius: 14px;
+        border: 1.5px dashed var(--brand-border);
+        background: #FCFCFD;
+    }
+
+    /* ---- 알림 박스(success/info/warning/error) ---- */
+    div[data-testid="stAlert"] { border-radius: 12px; }
+
+    /* ---- 사이드바 ---- */
+    section[data-testid="stSidebar"] {
+        background: var(--brand-card);
+        border-right: 1px solid var(--brand-border);
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # Streamlit Cloud의 Secrets에 ANTHROPIC_API_KEY를 넣어뒀다면,
 # 맞춤법 검사 모듈(os.environ 기반)이 쓸 수 있게 환경변수로도 복사해준다.
 try:
@@ -161,9 +264,35 @@ def download_button_for_file(path: str, label: str = None, key: str = None):
     )
 
 
-st.title("🎬 숏폼 자동화 도구")
-st.caption("영상을 올리면 숏폼 추출 / 인트로 체크 / 맞춤법 검사 / 자동 컷편집을 해줍니다. "
-           "자막은 절대 영상에 굽지 않아서 프리미어 프로에서 자유롭게 다시 수정할 수 있습니다.")
+st.markdown(
+    """
+    <div class="hero-header">
+        <h1>🎬 숏폼 자동화 도구</h1>
+        <p>영상을 올리면 숏폼 추출 · 인트로 체크 · 맞춤법 검사 · 자동 컷편집을 해줍니다.<br>
+        자막은 절대 영상에 굽지 않아서, 완성 후에도 프리미어 프로에서 자유롭게 다시 수정할 수 있습니다.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+with st.sidebar:
+    st.markdown("### 📖 빠른 가이드")
+    st.markdown(
+        "**📹 숏폼 만들기**\n\n"
+        "영상 1개를 올리면 자막 생성 → 맞춤법 검사 → 인트로 진단 → "
+        "숏폼 하이라이트 추출 → 프리미어 마커까지 한 번에 처리합니다.\n\n"
+        "**✂️ 자동 컷편집**\n\n"
+        "무음 구간을 잘라내고, 레퍼런스 영상의 컷 리듬을 참고해서 "
+        "자동으로 편집본을 만듭니다. 결과가 마음에 안 들면 "
+        "'수정 요청하기'에 자유롭게 적으면 다시 편집해줍니다.\n\n"
+        "**📝 맞춤법 검사**\n\n"
+        "편집 없이 자막 맞춤법만 빠르게 확인하고 싶을 때 씁니다."
+    )
+    st.markdown("---")
+    st.caption(
+        "결과물은 프리미어 프로에서 그대로 불러올 수 있는 XML/EDL 형식으로 "
+        "함께 제공됩니다. 문제가 생기면 각 결과의 '자세한 오류 내용 보기'를 확인해주세요."
+    )
 
 tab1, tab2, tab3 = st.tabs([
     "📹 숏폼 만들기 (main.py 기능)",
