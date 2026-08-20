@@ -55,6 +55,48 @@ def _measure_loudness(video_path: str, start: float, dur: float) -> float:
     return float(m.group(1)) if m else -91.0
 
 
+def parse_target_duration(text: str, original_duration: Optional[float] = None) -> Optional[float]:
+    """'목표 최종 길이' 입력창에 적은 자유 형식 텍스트를 초 단위 숫자로 바꿔준다.
+
+    지원하는 표현:
+      - 빈 문자열                -> None (목표 길이 없음, 압축 안 함)
+      - "420"                    -> 420초 (예전 방식과 그대로 호환)
+      - "7분", "7분 30초"        -> 분/초 표현
+      - "7:30"                   -> mm:ss 표현
+      - "70%"                    -> 원본 길이의 70% (원본 영상 길이를 알아야 계산 가능)
+
+    "영상이 10분으로 나왔는데 7분을 원한다" 같은 요청을 초 단위로 직접 계산하지
+    않고 그대로 입력할 수 있게 하기 위한 함수.
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+
+    if text.endswith("%"):
+        pct_text = text[:-1].strip()
+        pct = float(pct_text)
+        if original_duration is None:
+            raise ValueError("퍼센트(%)로 목표 길이를 지정하려면 원본 영상 길이를 먼저 알아야 합니다.")
+        return original_duration * pct / 100.0
+
+    m = re.match(r"^(\d+)\s*:\s*(\d{1,2}(?:\.\d+)?)$", text)
+    if m:
+        return int(m.group(1)) * 60 + float(m.group(2))
+
+    m = re.match(r"^(\d+(?:\.\d+)?)\s*분\s*(?:(\d+(?:\.\d+)?)\s*초)?$", text)
+    if m:
+        mins = float(m.group(1))
+        secs = float(m.group(2)) if m.group(2) else 0.0
+        return mins * 60 + secs
+
+    m = re.match(r"^(\d+(?:\.\d+)?)\s*초$", text)
+    if m:
+        return float(m.group(1))
+
+    # 위 형식에 안 맞으면 그냥 순수 숫자(초)로 간주한다 (기존 동작과 호환).
+    return float(text)
+
+
 def build_segments(
     video_path: str,
     subtitle_lines: Optional[List[SubtitleLine]] = None,
