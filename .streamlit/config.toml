@@ -12,3 +12,10 @@ maxMessageSize = 10000
 
 [theme]
 base = "light"
+# 깔끔한 SaaS 대시보드 톤(인디고/바이올렛 포인트 컬러)으로 맞춤. app.py
+# 상단의 커스텀 CSS(카드/탭/버튼 스타일)와 같은 팔레트를 쓰도록 통일했다.
+primaryColor = "#6C5CE7"
+backgroundColor = "#FAFAFC"
+secondaryBackgroundColor = "#F4F5F7"
+textColor = "#1F2333"
+font = "sans serif"
