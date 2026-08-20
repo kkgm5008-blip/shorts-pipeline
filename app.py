@@ -211,13 +211,6 @@ st.markdown(
         box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
 
-    /* ---- 테두리 있는 컨테이너(st.container(border=True))를 카드로 ---- */
-    div[data-testid="stVerticalBlockBorderWrapper"] {
-        border-radius: 16px !important;
-        border: 1px solid var(--brand-border) !important;
-        background: var(--brand-card);
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-    }
     </style>
     """,
     unsafe_allow_html=True,
