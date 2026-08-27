@@ -404,22 +404,25 @@ with tab1:
     section_header(1, "영상 업로드")
     col1, col2 = st.columns(2)
     with col1:
-        video_file = st.file_uploader("원본 영상 (필수)", type=["mp4", "mov", "mkv", "avi"], key="t1_video")
+        video_file = st.file_uploader("원본 영상 (필수, 5GB까지)", type=["mp4", "mov", "mkv", "avi"], key="t1_video")
         youtube_url = st.text_input(
-            "또는 동영상 링크로 대신 지정 (선택, 500MB 넘는 큰 영상은 이 방법을 써야 합니다)",
+            "또는 동영상/구글드라이브 링크로 대신 지정 (선택, 큰 영상은 이 방법을 추천합니다)",
             value="", key="t1_youtube_url",
-            placeholder="https://www.youtube.com/watch?v=...",
+            placeholder="https://www.youtube.com/watch?v=... 또는 https://drive.google.com/file/d/...",
         )
         st.caption(
             "브라우저로 직접 업로드하면 영상 전체가 서버 메모리에 먼저 올라가서, "
-            "용량이 큰 영상은 서버가 죽을 수 있어 500MB 넘는 파일은 업로드 자체가 "
-            "막혀 있습니다. 링크를 쓰면 서버가 직접 스트리밍으로 다운로드하기 "
-            "때문에 파일 크기와 무관하게 훨씬 안전합니다(최대 8시간 분량). "
-            "유튜브 링크가 기본이지만, 내부적으로 yt-dlp를 사용해서 다른 여러 "
-            "동영상 사이트의 직접 링크도 대부분 지원됩니다 - 영상이 로컬 파일 "
-            "뿐이라면, 유튜브에 '미등록(비공개 아님)'으로 올린 뒤 그 링크를 "
-            "넣는 것이 가장 확실합니다. 파일과 링크를 둘 다 입력하면 업로드한 "
-            "파일이 우선 사용됩니다."
+            "용량이 큰 영상(특히 1GB 이상)은 서버가 죽을 위험이 있습니다 "
+            "(5GB까지는 업로드 자체는 허용하지만, 그래도 위험은 남아있습니다). "
+            "링크를 쓰면 서버가 직접 스트리밍으로 다운로드하기 때문에 파일 "
+            "크기와 무관하게 훨씬 안전합니다(최대 8시간 분량). 유튜브 링크뿐 "
+            "아니라 **구글 드라이브 공유 링크도 지원**됩니다 - 드라이브에서 "
+            "파일 우클릭 → 공유 → '링크가 있는 모든 사용자'로 권한을 바꾼 뒤 "
+            "그 링크(https://drive.google.com/file/d/...)를 붙여넣으면 됩니다 "
+            "(권한이 비공개면 다운로드가 실패합니다). 이 외에도 내부적으로 "
+            "yt-dlp를 사용해서 다른 여러 동영상 사이트의 직접 링크도 대부분 "
+            "지원됩니다. 파일과 링크를 둘 다 입력하면 업로드한 파일이 우선 "
+            "사용됩니다."
         )
         youtube_cookies_file = st.file_uploader(
             "유튜브 쿠키 파일 (cookies.txt, 선택)",
@@ -472,7 +475,7 @@ with tab1:
                 video_path = save_upload(video_file)
                 base_name = os.path.splitext(video_file.name)[0]
             else:
-                with st.status("유튜브 영상 다운로드 중...", expanded=True) as dl_status:
+                with st.status("링크에서 영상 다운로드 중... (유튜브/구글드라이브 등)", expanded=True) as dl_status:
                     yt_cookies_path = save_upload(youtube_cookies_file) if youtube_cookies_file else None
                     try:
                         video_path = download_youtube_video(
@@ -480,10 +483,14 @@ with tab1:
                             max_duration_sec=MAX_VIDEO_DURATION_SEC, max_height=1080,
                         )
                         base_name = os.path.splitext(os.path.basename(video_path))[0]
-                        dl_status.update(label="유튜브 영상 다운로드 완료!", state="complete")
+                        dl_status.update(label="영상 다운로드 완료!", state="complete")
                     except Exception as e:
-                        dl_status.update(label="유튜브 영상 다운로드 실패", state="error")
-                        st.error(f"유튜브 영상을 다운로드하지 못했습니다: {e}")
+                        dl_status.update(label="영상 다운로드 실패", state="error")
+                        st.error(
+                            f"링크에서 영상을 다운로드하지 못했습니다: {e}\n\n"
+                            "구글 드라이브 링크라면 공유 권한이 '링크가 있는 모든 "
+                            "사용자'로 되어 있는지 확인해주세요."
+                        )
 
             # 직접 업로드한 영상은 유튜브 링크 경로와 달리 길이 제한이 없었다.
             # 여기서 뒤늦게라도 길이를 재서, 처리(자막 생성/렌더링) 전에
