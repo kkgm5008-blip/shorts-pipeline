@@ -313,6 +313,25 @@ def download_button_for_file(path: str, label: str = None, key: str = None):
     )
 
 
+def format_timecode_mmss(seconds: float) -> str:
+    seconds = max(0.0, seconds)
+    m = int(seconds // 60)
+    s = seconds % 60
+    return f"{m:02d}:{s:05.2f}"
+
+
+def subtitle_window_text(lines, start: float, end: float) -> str:
+    """구간(start~end)에 걸리는 자막 줄들을 '몇 분 몇 초 - 대사' 형태로
+    전부 이어붙인다. 프리미어에서 수동으로 자를 때 참고할 수 있게, 미리보기
+    2줄만 보여주던 것과 달리 그 구간의 자막을 빠짐없이 보여준다."""
+    window_lines = [l for l in lines if l.start < end and l.end > start]
+    if not window_lines:
+        return "(자막 없음)"
+    return "\n".join(
+        f"[{format_timecode_mmss(l.start)}] {l.text}" for l in window_lines
+    )
+
+
 def section_header(num, title, desc=None):
     """숫자 배지가 붙은 섹션 제목을 그린다 (예: ① 영상 업로드)."""
     desc_html = f'<p class="step-desc">{desc}</p>' if desc else ""
@@ -426,7 +445,7 @@ with tab1:
             st.error("영상 파일을 올리거나 유튜브 링크를 입력해주세요.")
         else:
             # 새로 분석하는 것이므로 이전 분석/결과/에러는 지운다.
-            for _k in ("tab1_analysis", "tab1_result", "tab1_error"):
+            for _k in ("tab1_analysis", "tab1_result", "tab1_error", "tab1_quick_markers"):
                 st.session_state.pop(_k, None)
 
             # 업로드한 파일이 있으면 그걸 우선 쓰고, 없으면 유튜브 링크에서
@@ -545,7 +564,8 @@ with tab1:
                 for i, c in enumerate(a["intro_candidates"], start=1):
                     with st.container(border=True):
                         st.video(a["video_path"], start_time=int(c.start), end_time=int(math.ceil(c.end)))
-                        st.caption(f"후보 {i} · {c.start:.1f}s ~ {c.end:.1f}s · {c.preview_text or '(자막 없음)'}")
+                        st.caption(f"후보 {i} · {c.start:.1f}s ~ {c.end:.1f}s")
+                        st.text(subtitle_window_text(a["lines"], c.start, c.end))
                     intro_labels.append(f"후보 {i} ({c.start:.1f}s~{c.end:.1f}s)")
                 intro_pick = st.radio(
                     "인트로로 쓸 후보를 골라주세요 (골라두면 숏폼 클립과 9:16 전체 변환본 맨 앞에 자동으로 붙습니다)",
@@ -573,11 +593,34 @@ with tab1:
                         )
                         st.write(f"⏱ {c.start:.1f}s ~ {c.end:.1f}s")
                         st.write(f"점수 {c.score:.1f}")
-                        st.caption(c.preview_text or "(자막 없음)")
+                    st.text(subtitle_window_text(a["lines"], c.start, c.end))
         else:
             st.info("하이라이트 후보를 찾지 못했습니다.")
 
-        finalize1 = st.button("✅ 선택한 대로 최종 결과 만들기", type="primary", key="t1_finalize")
+        st.markdown("")
+        st.caption(
+            "영상을 서버에서 실제로 자르지 않고, 위 구간 타임코드+자막을 그대로 "
+            "프리미어 프로 마커로 받아서 직접 잘라도 됩니다 (서버 부하가 훨씬 적습니다)."
+        )
+        if st.button("📋 지금 바로 프리미어 마커 파일 받기 (렌더링 없이)", key="t1_markers_only"):
+            quick_markers = build_markers_from_pipeline(
+                a["intro_result"], a["highlight_candidates"], a["spell_result"].issues,
+            )
+            quick_csv_path = os.path.join(a["out_dir"], f"{a['base_name']}_candidates_markers.csv")
+            quick_txt_path = os.path.join(a["out_dir"], f"{a['base_name']}_candidates_markers_readable.txt")
+            write_premiere_markers_csv(quick_csv_path, quick_markers, fps=a["fps"])
+            write_readable_markers(quick_txt_path, quick_markers)
+            st.session_state["tab1_quick_markers"] = {"csv": quick_csv_path, "txt": quick_txt_path}
+
+        if st.session_state.get("tab1_quick_markers"):
+            qm = st.session_state["tab1_quick_markers"]
+            qmc1, qmc2 = st.columns(2)
+            with qmc1:
+                download_button_for_file(qm["csv"], "⬇ 마커 CSV (프리미어 Import Markers용)", key="t1_qm_csv")
+            with qmc2:
+                download_button_for_file(qm["txt"], "⬇ 마커 목록 TXT (사람이 읽는 용)", key="t1_qm_txt")
+
+        finalize1 = st.button("✅ 선택한 대로 최종 결과 만들기 (실제로 mp4로 잘라서 렌더링)", type="primary", key="t1_finalize")
         if finalize1:
             selected = [c for i, c in enumerate(a["highlight_candidates"]) if st.session_state.get(f"t1_hl_{i}")]
             intro_tuple = None
