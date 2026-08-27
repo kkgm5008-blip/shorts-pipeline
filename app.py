@@ -47,6 +47,12 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # 한 번에 올릴 수 있는 원본(raw) 영상 최대 개수 (tab2).
 MAX_RAW_VIDEOS = 5
 
+# 무료 클라우드 서버(RAM/CPU 한계)에서 자막 생성(STT)+렌더링을 안전하게
+# 처리할 수 있는 최대 영상 길이(초). 이보다 긴 영상은 처리 도중 서버 전체가
+# 죽어서(메모리 부족/타임아웃) 다른 사용자에게도 영향을 줄 수 있으므로 미리
+# 막는다. 유튜브 링크 다운로드에도 동일하게 적용한다.
+MAX_VIDEO_DURATION_SEC = 4 * 3600
+
 
 def _check_password() -> bool:
     """온라인에 공개 배포했을 때, 아무나 링크로 들어와서 쓰는 걸 막기 위한
@@ -463,7 +469,7 @@ with tab1:
                     try:
                         video_path = download_youtube_video(
                             youtube_url.strip(), UPLOAD_DIR, cookies_path=yt_cookies_path,
-                            max_duration_sec=4 * 3600, max_height=1080,
+                            max_duration_sec=MAX_VIDEO_DURATION_SEC, max_height=1080,
                         )
                         base_name = os.path.splitext(os.path.basename(video_path))[0]
                         dl_status.update(label="유튜브 영상 다운로드 완료!", state="complete")
@@ -471,7 +477,25 @@ with tab1:
                         dl_status.update(label="유튜브 영상 다운로드 실패", state="error")
                         st.error(f"유튜브 영상을 다운로드하지 못했습니다: {e}")
 
+            # 직접 업로드한 영상은 유튜브 링크 경로와 달리 길이 제한이 없었다.
+            # 여기서 뒤늦게라도 길이를 재서, 처리(자막 생성/렌더링) 전에
+            # 너무 긴 영상은 걸러낸다 (그렇지 않으면 서버 전체가 죽을 수 있음).
+            video_too_long = False
             if video_path:
+                try:
+                    _pre_duration = probe_duration(video_path)
+                except Exception:
+                    _pre_duration = None
+                if _pre_duration is not None and _pre_duration > MAX_VIDEO_DURATION_SEC:
+                    video_too_long = True
+                    st.error(
+                        f"영상 길이가 약 {_pre_duration/3600:.1f}시간으로 너무 깁니다. "
+                        f"무료 서버 자원(메모리/CPU) 한계로 {int(MAX_VIDEO_DURATION_SEC // 3600)}시간을 "
+                        "넘는 영상은 처리 중(자막 생성/렌더링) 서버 전체가 죽을 수 있어 막아뒀습니다. "
+                        "영상을 여러 구간으로 나눠서 각각 올려주시거나, 더 짧게 잘라서 다시 시도해주세요."
+                    )
+
+            if video_path and not video_too_long:
               srt_path = save_upload(srt_file) if srt_file else None
               out_dir = os.path.join(OUTPUT_DIR, base_name)
               os.makedirs(out_dir, exist_ok=True)
