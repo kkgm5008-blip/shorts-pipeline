@@ -93,7 +93,14 @@ def download_youtube_video(
                 " (유튜브가 서버 접속을 차단한 것으로 보입니다 - 쿠키 파일을 "
                 "함께 넣으면 우회가 될 수도 있습니다.)"
             )
-        raise RuntimeError(f"유튜브 영상 다운로드에 실패했습니다: {e}{hint}") from e
+        elif "drive.google.com" in url and (
+            "permission" in str(e).lower() or "cannot retrieve" in str(e).lower()
+        ):
+            hint = (
+                " (구글 드라이브 파일의 공유 권한이 '링크가 있는 모든 "
+                "사용자'로 되어 있는지 확인해주세요.)"
+            )
+        raise RuntimeError(f"영상 다운로드에 실패했습니다: {e}{hint}") from e
 
     base, _ext = os.path.splitext(filepath)
     mp4_path = base + ".mp4"
